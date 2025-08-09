@@ -13,3 +13,37 @@ datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
+
+enum Role {
+  User
+  Staff
+  Admin
+}
+
+enum AuthProvider {
+  Local
+  Google
+}
+
+model User {
+  userId        String          @id @default(uuid())
+  username      String
+  email         String?
+  password      String?
+  createdAt     DateTime        @default(now())
+  role          Role            @default(User)
+  provider      AuthProvider    @default(Local)
+  
+  sessions      Session[]
+}
+
+model Session {
+  sessionId     String          @id @default(uuid())
+  userId        String
+  userId        String
+  refreshToken  String
+  expiresAt     DateTime
+  createdAt     DateTime
+
+  user          User            @relation(fields: [userId], references: [userId], onDelete: Cascade)
+}
