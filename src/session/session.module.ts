@@ -1,6 +1,6 @@
 import { Module } from "@nestjs/common";
 import { PrismaModule } from "prisma/prisma.module";
-import { SessionService } from "./token.service";
+import { SessionService } from "./session.service";
 
 @Module({
     imports: [PrismaModule],

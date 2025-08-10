@@ -5,12 +5,14 @@ import * as bcrypt from 'bcrypt';
 import { LoginDto, SignupDto, UserPayloadDto } from './dto/auth.dto';
 import { JwtService } from '@nestjs/jwt';
 import { v4 as uuidv4 } from 'uuid';
+import { SessionService } from 'src/session/session.service';
 
 @Injectable()
 export class AuthService {
     constructor(
         private readonly usersService: UsersService,
         private readonly jwtService: JwtService,
+        private readonly sessionService: SessionService,
     ) { }
 
     private readonly logger = new Logger('AuthService');
@@ -18,12 +20,10 @@ export class AuthService {
     async validateUser(username: string, password: string): Promise<Omit<User, 'password'>> {
         const DUMMY_HASH = '$2b$10$CwTycUXWue0Thq9StjUM0uJ8e3zoH8JPB8OPm0.9l4qwEYAsfP0r6';
         const user = await this.usersService.findUserByUserName(username);
-        console.log('User in validation: ', user);
         let passwordIsValid: boolean = false;
 
         if (user?.password) {
             passwordIsValid = await bcrypt.compare(password, user.password);
-            console.log('Is password valid? ', passwordIsValid);
         } else {
             await bcrypt.compare(password, DUMMY_HASH);
             this.logger.warn('Login attempt for non-existent user: ', username);
@@ -48,6 +48,15 @@ export class AuthService {
             jti,
         }, { expiresIn: '7d' });
 
+        const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+        const hashingToken = await bcrypt.hash(refreshToken, 10);
+        await this.sessionService.createSession({
+            jti,
+            hashedToken: hashingToken,
+            userId: payload.sub,
+            expiresAt,
+        });
+
         return { accessToken, refreshToken };
     }
 
@@ -56,11 +65,13 @@ export class AuthService {
         if (!loginDto.password) throw new NotFoundException('Password not found in login DTO');
 
         const user = await this.validateUser(loginDto.username, loginDto.password);
-
+        
+        const jti = uuidv4();
         const userPayload: UserPayloadDto = {
             sub: user.userId,
             email: user.email,
             role: user.role,
+            jti,
         };
 
         const { accessToken, refreshToken } = await this.generateToken(userPayload);
@@ -75,10 +86,12 @@ export class AuthService {
     async register(signupDto: SignupDto) {
         const user = await this.usersService.createuser(signupDto);
 
+        const jti = uuidv4();
         const userPayload: UserPayloadDto = {
             sub: user.userId,
             email: user.email,
             role: user.role,
+            jti,
         };
 
         const { accessToken, refreshToken } = await this.generateToken(userPayload);
@@ -86,27 +99,46 @@ export class AuthService {
     }
 
     async refresh(refreshToken: string) {
-        try {
-            const payload = await this.jwtService.verifyAsync(refreshToken);
-            const newExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+        // 1️⃣ Verify the refresh token
+        const payload = await this.jwtService.verifyAsync(refreshToken);
 
-            const user = await this.usersService.findUserByUserId(payload.sub);
-            const newUserPayload: UserPayloadDto = {
-                sub: user.userId,
-                email: user.email,
-                role: user.role,
-            };
-
-            const { accessToken, refreshToken: newRefreshToken } = await this.generateToken(newUserPayload);
-
-            return {
-                accessToken,
-                refreshToken: newRefreshToken,
-                newUserPayload,
-            };
-        } catch (error) {
-            this.logger.error('Refresh token verification failed: ', error);
-            throw new UnauthorizedException('Invalid refresh token');
+        // 2️⃣ Find the session
+        const storedSession = await this.sessionService.findSessionByJti(payload.jti);
+        if(!storedSession || storedSession.isRevoked) {
+            throw new UnauthorizedException('Invalid or revoked refresh token');
         }
+
+        // 3️⃣ Check expiry
+        if (storedSession.expiresAt < new Date()) {
+            throw new UnauthorizedException('Refresh token expired');
+        }
+
+        // 4️⃣ Generate a new refresh token & hash it
+        const jti = uuidv4();
+        const newUserPayload: UserPayloadDto = {
+            sub: payload.sub,
+            email: payload.email,
+            role: payload.role,
+            jti,
+        };
+
+        const { accessToken, refreshToken: newRefreshToken } = await this.generateToken(newUserPayload);
+
+        const newExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+        const newHashedToken = await bcrypt.hash(newRefreshToken, 10);
+        
+        // 5️⃣ Update session (rotation)
+        await this.sessionService.refreshSession(payload.jti, newHashedToken, newExpiry);
+
+        // 5️⃣ Return new tokens
+        return {
+            accessToken,
+            refreshToken: newRefreshToken,
+            newUserPayload,
+        };
+    }
+
+    async logout(jti: string) {
+        await this.sessionService.revokedSessionByJti(jti);
     }
 }

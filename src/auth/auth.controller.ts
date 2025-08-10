@@ -1,8 +1,9 @@
-import { Body, Controller, Post, Req, Res } from '@nestjs/common';
+import { Body, Controller, Post, Req, Res, UnauthorizedException } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { Public } from './decorator/public.decorator';
 import { LoginDto, SignupDto } from './dto/auth.dto';
 import type { Request, Response } from 'express';
+import * as session from 'src/types/session';
 
 @Controller('auth')
 export class AuthController {
@@ -21,19 +22,19 @@ export class AuthController {
         res.cookie('access_token', accessToken, {
             httpOnly: true,
             secure: false,
-            sameSite: 'none',
+            sameSite: 'lax',
             maxAge: 30 * 60 * 1000,
         });
 
         res.cookie('refresh_token', refreshToken, {
             httpOnly: true,
             secure: false,
-            sameSite: 'none',
+            sameSite: 'lax',
             maxAge: 7 * 24 * 60 * 60 * 1000,
         });
 
         return {
-            message: 'Signup successful',
+            message: 'Successfully signup',
             user,
             accessToken,
             refreshToken,
@@ -51,19 +52,19 @@ export class AuthController {
         res.cookie('access_token', accessToken, {
             httpOnly: true,
             secure: false,
-            sameSite: 'none',
+            sameSite: 'lax',
             maxAge: 30 * 60 * 1000,
         });
 
         res.cookie('refresh_token', refreshToken, {
             httpOnly: true,
             secure: false,
-            sameSite: 'none',
+            sameSite: 'lax',
             maxAge: 7 * 24 * 60 * 60 * 1000,
         });
 
         return {
-            message: 'Login successful',
+            message: 'Successfully login',
             user,
             accessToken,
             refreshToken,
@@ -81,24 +82,42 @@ export class AuthController {
         res.cookie('access_token', accessToken, {
             httpOnly: true,
             secure: false,
-            sameSite: 'none',
+            sameSite: 'lax',
             expires: new Date(Date.now() + 30 * 60 * 1000),
         });
 
         res.cookie('refresh_token', newRefreshToken, {
             httpOnly: true,
             secure: false,
-            sameSite: 'none',
+            sameSite: 'lax',
             expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
         });
 
         return { accessToken, user };
     }
 
-    @Post('/logout')
-    async logout(@Res({ passthrough: true }) res: Response) {
-        res.clearCookie('access_token');
-        res.clearCookie('refresh_token');
-        return { message: `Logout successful` };
+    @Post('logout')
+    async logout(@Req() req: session.RequestWithUser, @Res({ passthrough: true }) res: Response) {
+        const jti = req.user?.jti;
+
+        if (!jti) {
+            throw new UnauthorizedException('JTI is missing from token');
+        }
+
+        await this.authService.logout(jti);
+
+        res.clearCookie('access_token', {
+            httpOnly: true,
+            sameSite:'lax',
+            secure: false,
+        });
+
+        res.clearCookie('refresh_token', {
+            httpOnly: true,
+            sameSite: 'lax',
+            secure: false,
+        });
+
+        return { message: `Successfully logout` };
     }
 }

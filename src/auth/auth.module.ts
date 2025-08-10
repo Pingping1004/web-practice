@@ -7,11 +7,13 @@ import { jwtConstants } from './constant';
 import { PassportModule } from '@nestjs/passport';
 import { LocalStrategy } from './strategies/local.strategy';
 import { JwtStrategy } from './strategies/jwt.strategy';
+import { SessionModule } from 'src/session/session.module';
 
 @Module({
   imports: [
     UsersModule,
     PassportModule,
+    SessionModule,
     JwtModule.register({
       global: true,
       secret: jwtConstants.secret,

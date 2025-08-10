@@ -41,11 +41,13 @@ model OAuthAccount {
 
 model Session {
   sessionId         String          @id @default(uuid())
+  jti               String          @unique
+  hashedToken       String          @unique
   userId            String
-  refreshTokenHash  String
   expiresAt         DateTime
-  createdAt         DateTime
-  lastUsedAt        DateTime        @default(now())
+  issuedAt         DateTime         @default(now())
+  isUsed            Boolean         @default(false)
+  isRevoked         Boolean         @default(false)
   ipAddress         String?
   userAgent         String?
 

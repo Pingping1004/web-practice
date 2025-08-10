@@ -41,4 +41,8 @@ export class UserPayloadDto {
     @IsEnum(Role)
     @IsNotEmpty()
     role: Role;
+
+    @IsString()
+    @IsNotEmpty()
+    jti: string;
 }
