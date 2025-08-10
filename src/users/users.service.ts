@@ -1,6 +1,7 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from 'prisma/prisma.service';
-import { User } from '@prisma/client';
+import { Role, User } from '@prisma/client';
+import { SignupDto } from 'src/auth/dto/auth.dto';
 
 @Injectable()
 export class UsersService {
@@ -8,12 +9,17 @@ export class UsersService {
         private readonly prisma: PrismaService,
     ) {}
 
-    async createuser(user: User): Promise<User> {
-        const existingUser = await this.findUserByUserName(user.userId);
+    async createuser(signupDto: SignupDto): Promise<User> {
+        const existingUser = await this.findUserByUserName(signupDto.username);
         if (existingUser) throw new ConflictException('User already register');
 
         const result = await this.prisma.user.create({
-            data: user,
+            data: {
+                email : signupDto.email ?? signupDto.username,
+                username: signupDto.username,
+                password: signupDto.password ?? '',
+                role: Role.User,
+            },
         });
 
         return result;
