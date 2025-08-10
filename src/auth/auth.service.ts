@@ -15,16 +15,18 @@ export class AuthService {
 
     private readonly logger = new Logger('AuthService');
 
-    async validateUser(email: string, password: string): Promise<Omit<User, 'password'>> {
+    async validateUser(username: string, password: string): Promise<Omit<User, 'password'>> {
         const DUMMY_HASH = '$2b$10$CwTycUXWue0Thq9StjUM0uJ8e3zoH8JPB8OPm0.9l4qwEYAsfP0r6';
-        const user = await this.usersService.findUserByEmail(email);
+        const user = await this.usersService.findUserByUserName(username);
+        console.log('User in validation: ', user);
         let passwordIsValid: boolean = false;
 
         if (user?.password) {
             passwordIsValid = await bcrypt.compare(password, user.password);
+            console.log('Is password valid? ', passwordIsValid);
         } else {
             await bcrypt.compare(password, DUMMY_HASH);
-            console.warn('Login attempt for non-existent email: ', email);
+            this.logger.warn('Login attempt for non-existent user: ', username);
         }
 
         if (!passwordIsValid || !user) throw new UnauthorizedException('Password is incorrect');
@@ -50,10 +52,10 @@ export class AuthService {
     }
 
     async login(loginDto: LoginDto) {
-        if (!loginDto.email) throw new NotFoundException('Email not found in login DTO');
+        if (!loginDto.username) throw new NotFoundException('Username not found in login DTO');
         if (!loginDto.password) throw new NotFoundException('Password not found in login DTO');
 
-        const user = await this.validateUser(loginDto.email, loginDto.password);
+        const user = await this.validateUser(loginDto.username, loginDto.password);
 
         const userPayload: UserPayloadDto = {
             sub: user.userId,
