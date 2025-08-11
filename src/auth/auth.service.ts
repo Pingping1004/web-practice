@@ -1,11 +1,12 @@
-import { Injectable, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
-import { User } from '@prisma/client';
+import { ForbiddenException, Injectable, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { Role, User, AuthProvider } from '@prisma/client';
 import { UsersService } from 'src/users/users.service';
 import * as bcrypt from 'bcrypt';
 import { LoginDto, SignupDto, UserPayloadDto } from './dto/auth.dto';
 import { JwtService } from '@nestjs/jwt';
 import { v4 as uuidv4 } from 'uuid';
 import { SessionService } from 'src/session/session.service';
+import { OauthService } from 'src/oauth/oauth.service';
 
 @Injectable()
 export class AuthService {
@@ -13,6 +14,7 @@ export class AuthService {
         private readonly usersService: UsersService,
         private readonly jwtService: JwtService,
         private readonly sessionService: SessionService,
+        private readonly oauthService: OauthService,
     ) { }
 
     private readonly logger = new Logger('AuthService');
@@ -65,7 +67,7 @@ export class AuthService {
         if (!loginDto.password) throw new NotFoundException('Password not found in login DTO');
 
         const user = await this.validateUser(loginDto.username, loginDto.password);
-        
+
         const jti = uuidv4();
         const userPayload: UserPayloadDto = {
             sub: user.userId,
@@ -84,7 +86,7 @@ export class AuthService {
     }
 
     async register(signupDto: SignupDto) {
-        const user = await this.usersService.createuser(signupDto);
+        const user = await this.usersService.createuser(signupDto, AuthProvider.Local);
 
         const jti = uuidv4();
         const userPayload: UserPayloadDto = {
@@ -104,7 +106,7 @@ export class AuthService {
 
         // 2️⃣ Find the session
         const storedSession = await this.sessionService.findSessionByJti(payload.jti);
-        if(!storedSession || storedSession.isRevoked) {
+        if (!storedSession || storedSession.isRevoked) {
             throw new UnauthorizedException('Invalid or revoked refresh token');
         }
 
@@ -126,7 +128,7 @@ export class AuthService {
 
         const newExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
         const newHashedToken = await bcrypt.hash(newRefreshToken, 10);
-        
+
         // 5️⃣ Update session (rotation)
         await this.sessionService.refreshSession(payload.jti, newHashedToken, newExpiry);
 
@@ -137,6 +139,44 @@ export class AuthService {
             newUserPayload,
         };
     }
+
+    async googleLogin(req): Promise<any> {
+        if (!req.user) throw new NotFoundException('No user info received for Google login');
+
+        const { emails, username, googleId } = req.user;
+        const email = emails?.[0].value ?? null;
+
+        let oauthAccount = await this.oauthService.findOauthAccount(AuthProvider.Google, googleId);
+
+        let user = oauthAccount?.user;
+        if (!user) {
+            user = await this.usersService.findUserByEmail(email);
+
+            if (user) {
+                if (user.provider !== AuthProvider.Google) {
+                    throw new ForbiddenException(`Account with this email exists via ${user.provider}, please log in with that method.`)
+                }
+            } else {
+                user = await this.usersService.createuser(
+                    {
+                        email,
+                        username,
+                    },
+                    AuthProvider.Google,
+                    googleId,
+                );
+            }
+        }
+
+        const userPayload: UserPayloadDto = {
+            sub: user?.userId,
+            email: email,
+            role: Role.User,
+            jti: uuidv4(),
+        };
+
+        return await this.generateToken(userPayload);
+    };
 
     async logout(jti: string) {
         await this.sessionService.revokedSessionByJti(jti);

@@ -7,6 +7,7 @@ import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { JwtAuthGuard } from './auth/guard/jwt-auth.guard';
 import { SessionModule } from './session/session.module';
+import { OauthModule } from './oauth/oauth.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { SessionModule } from './session/session.module';
     AuthModule,
     UsersModule,
     SessionModule,
+    OauthModule,
   ],
   controllers: [AppController],
   providers: [

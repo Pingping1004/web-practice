@@ -33,10 +33,12 @@ model User {
 
 model OAuthAccount {
   oauthId           String          @id @default(uuid())
-  provider          String
-  providerUserId    String          @unique
+  provider          AuthProvider
+  providerUserId    String
   userId            String
   user              User            @relation(fields: [userId], references: [userId])
+
+  @@unique([provider, providerUserId])
 }
 
 model Session {

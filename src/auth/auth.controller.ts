@@ -1,9 +1,10 @@
-import { Body, Controller, Post, Req, Res, UnauthorizedException } from '@nestjs/common';
+import { Body, Controller, Get, Post, Req, Res, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { Public } from './decorator/public.decorator';
 import { LoginDto, SignupDto } from './dto/auth.dto';
 import type { Request, Response } from 'express';
 import * as session from 'src/types/session';
+import { GoogleAuthGuard } from './guard/google-auth.guard';
 
 @Controller('auth')
 export class AuthController {
@@ -94,6 +95,29 @@ export class AuthController {
         });
 
         return { accessToken, user };
+    }
+
+    @Public()
+    @Get('google/callback')
+    @UseGuards(GoogleAuthGuard)
+    async googleAuthRedirect(@Req() req, @Res() res: Response) {
+        const { accessToken, refreshToken } = await this.authService.googleLogin(req);
+
+        res.cookie('access_token', accessToken, {
+            httpOnly: true,
+            secure: false,
+            sameSite: 'lax',
+            maxAge: 30 * 60 * 1000,
+        });
+
+        res.cookie('refresh_token', refreshToken, {
+            httpOnly: true,
+            secure: false,
+            sameSite: 'lax',
+            maxAge: 7 * 24 * 60 * 60 * 1000,
+        });
+
+        res.redirect('/users/profile');
     }
 
     @Post('logout')

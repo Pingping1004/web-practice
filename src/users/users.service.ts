@@ -1,16 +1,18 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from 'prisma/prisma.service';
-import { Role, User } from '@prisma/client';
+import { AuthProvider, Role, User } from '@prisma/client';
 import { SignupDto } from 'src/auth/dto/auth.dto';
 import * as bcrypt from 'bcrypt';
+import { OauthService } from 'src/oauth/oauth.service';
 
 @Injectable()
 export class UsersService {
     constructor(
         private readonly prisma: PrismaService,
+        private readonly oauthService: OauthService,
     ) {}
 
-    async createuser(signupDto: SignupDto): Promise<User> {
+    async createuser(signupDto: SignupDto, provider: AuthProvider, providerUserId?: string): Promise<User> {
         const existingUser = await this.findUserByUserName(signupDto.username);
         if (existingUser) throw new ConflictException('User already register');
 
@@ -22,8 +24,17 @@ export class UsersService {
                 username: signupDto.username,
                 password: hashedPassword ?? '',
                 role: Role.User,
+                provider: provider,
             },
         });
+
+        if (provider !== AuthProvider.Local && providerUserId) {
+            await this.oauthService.createOauthAccount({
+                provider,
+                providerUserId,
+                userId: result.userId,
+            });
+        }
 
         return result;
     }
@@ -50,11 +61,11 @@ export class UsersService {
         return user;
     }
 
-    async findUserByEmail(email: string): Promise<User| null> {
+    async findUserByEmail(email: string): Promise<User | undefined> {
         const user = await this.prisma.user.findUnique({
             where: { email },
         });
 
-        return user;
+        return user ?? undefined;
     }
 }

@@ -7,8 +7,8 @@ export class SignupDto {
     username: string;
 
     @IsEmail()
-    @IsNotEmpty()
-    email: string;
+    @IsOptional()
+    email?: string;
 
     @IsString()
     @IsOptional()
@@ -17,8 +17,8 @@ export class SignupDto {
 
 export class LoginDto {
     @IsString()
-    @IsNotEmpty()
-    username: string;
+    @IsOptional()
+    username?: string;
 
     @IsEmail()
     @IsOptional()

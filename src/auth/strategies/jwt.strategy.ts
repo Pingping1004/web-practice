@@ -7,7 +7,7 @@ import { Role } from "@prisma/client";
 import type { Request } from "express";
 
 @Injectable()
-export class JwtStrategy extends PassportStrategy(Strategy) {
+export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     private readonly logger = new Logger('JwtStrategy');
     constructor(
         private readonly usersService: UsersService,

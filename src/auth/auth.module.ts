@@ -8,19 +8,26 @@ import { PassportModule } from '@nestjs/passport';
 import { LocalStrategy } from './strategies/local.strategy';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { SessionModule } from 'src/session/session.module';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { OauthModule } from 'src/oauth/oauth.module';
+import { GoogleStrategy } from './strategies/google.strategy';
 
 @Module({
   imports: [
     UsersModule,
     PassportModule,
     SessionModule,
-    JwtModule.register({
-      global: true,
-      secret: jwtConstants.secret,
-      signOptions: { expiresIn: '30m' },
+    OauthModule,
+    JwtModule.registerAsync({
+      imports: [ConfigModule],
+      useFactory: async () => ({
+        secret: jwtConstants.secret,
+        signOptions: { expiresIn: '30m' },
+      }),
+      inject: [ConfigService],
     })
   ],
   controllers: [AuthController],
-  providers: [AuthService, LocalStrategy, JwtStrategy],
+  providers: [AuthService, LocalStrategy, JwtStrategy, GoogleStrategy],
 })
 export class AuthModule {}
