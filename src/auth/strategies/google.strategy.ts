@@ -4,17 +4,13 @@ import { PassportStrategy } from "@nestjs/passport";
 import { AuthProvider } from "@prisma/client";
 import { VerifyCallback, Strategy } from 'passport-google-oauth20'
 import { OauthService } from "src/oauth/oauth.service";
-import { UsersService } from "src/users/users.service";
-import { AuthService } from "../auth.service";
 
 @Injectable()
 export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
     private readonly logger = new Logger('GoogleStrategy');
     constructor(
         private readonly configService: ConfigService,
-        private readonly userService: UsersService,
         private readonly oauthService: OauthService,
-        private readonly authService: AuthService,
     ) {
         super({
             clientID: configService.get('GOOGLE_CLIENT_ID'),
@@ -32,12 +28,11 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
     ) {
         try {
             const { id: googleId, emails, name } = profile;
-            console.log('googleId in google strategy: ', googleId);
             const email = emails?.[0]?.value ?? null;
             const username = typeof name === 'string' ? name : (name?.givenName ?? email.split('@')[0]);
 
             const oauthAccount = await this.oauthService.findOauthAccount(AuthProvider.Google, googleId);
-            if (oauthAccount) return done(null, oauthAccount.user)
+            if (oauthAccount) return done(null, oauthAccount)
 
             const newUserPayload = {
                 username,

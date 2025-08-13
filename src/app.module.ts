@@ -8,6 +8,9 @@ import { APP_GUARD } from '@nestjs/core';
 import { JwtAuthGuard } from './auth/guard/jwt-auth.guard';
 import { SessionModule } from './session/session.module';
 import { OauthModule } from './oauth/oauth.module';
+import { ThrottlerModule } from '@nestjs/throttler';
+import { IpThrottlerGuard } from './auth/guard/ip-throttler.guard';
+import { MfaModule } from './mfa/mfa.module';
 
 @Module({
   imports: [
@@ -15,13 +18,26 @@ import { OauthModule } from './oauth/oauth.module';
       isGlobal: true,
       envFilePath: '.env',
     }),
+    ThrottlerModule.forRoot({
+      throttlers: [
+        {
+          ttl: 60,
+          limit: 20,
+        },
+      ],
+    }),
     AuthModule,
     UsersModule,
     SessionModule,
     OauthModule,
+    MfaModule,
   ],
   controllers: [AppController],
-  providers: [
+  providers: [ 
+    {
+      provide: APP_GUARD,
+      useClass: IpThrottlerGuard,
+    },
     {
       provide: APP_GUARD,
       useClass: JwtAuthGuard,

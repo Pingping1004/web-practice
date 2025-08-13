@@ -18,10 +18,16 @@ enum AuthProvider {
   Google
 }
 
+enum MfaMethod {
+  Totp
+  Email
+  None
+}
+
 model User {
   userId            String          @id @default(uuid())
   username          String          @unique
-  email             String         @unique
+  email             String          @unique
   password          String?
   createdAt         DateTime        @default(now())
   role              Role            @default(User)
@@ -29,6 +35,10 @@ model User {
 
   oauthAccounts     OAuthAccount[]
   sessions          Session[]
+
+  mfaEnabled        Boolean         @default(false)
+  mfaSecret         String?
+  mfaMethod         MfaMethod       @default(None)
 }
 
 model OAuthAccount {
@@ -47,11 +57,13 @@ model Session {
   hashedToken       String          @unique
   userId            String
   expiresAt         DateTime
-  issuedAt         DateTime         @default(now())
+  issuedAt          DateTime        @default(now())
   isUsed            Boolean         @default(false)
   isRevoked         Boolean         @default(false)
   ipAddress         String?
   userAgent         String?
+
+  mfaVerified       Boolean         @default(false)
 
   user              User            @relation(fields: [userId], references: [userId], onDelete: Cascade)
 }

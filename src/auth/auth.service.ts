@@ -1,5 +1,5 @@
-import { ForbiddenException, Injectable, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
-import { Role, User, AuthProvider } from '@prisma/client';
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { User, AuthProvider } from '@prisma/client';
 import { UsersService } from 'src/users/users.service';
 import * as bcrypt from 'bcrypt';
 import { LoginDto, SignupDto, UserPayloadDto } from './dto/auth.dto';
@@ -7,6 +7,7 @@ import { JwtService } from '@nestjs/jwt';
 import { v4 as uuidv4 } from 'uuid';
 import { SessionService } from 'src/session/session.service';
 import { OauthService } from 'src/oauth/oauth.service';
+import { MfaService } from 'src/mfa/mfa.service';
 
 @Injectable()
 export class AuthService {
@@ -15,6 +16,7 @@ export class AuthService {
         private readonly jwtService: JwtService,
         private readonly sessionService: SessionService,
         private readonly oauthService: OauthService,
+        private readonly mfaService: MfaService,
     ) { }
 
     private readonly logger = new Logger('AuthService');
@@ -37,7 +39,7 @@ export class AuthService {
         return result;
     }
 
-    private async generateToken(payload: UserPayloadDto) {
+    async generateToken(payload: UserPayloadDto) {
         const jti = uuidv4();
 
         const accessToken = await this.jwtService.signAsync({
@@ -48,18 +50,22 @@ export class AuthService {
         const refreshToken = await this.jwtService.signAsync({
             ...payload,
             jti,
-        }, { expiresIn: '7d' });
-
-        const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-        const hashingToken = await bcrypt.hash(refreshToken, 10);
-        await this.sessionService.createSession({
-            jti,
-            hashedToken: hashingToken,
-            userId: payload.sub,
-            expiresAt,
-        });
+        }, { expiresIn: '30d' });
 
         return { accessToken, refreshToken };
+    }
+
+    async isMfaRequired(jti: string) {
+        const session = await this.sessionService.findSessionByJti(jti);
+        if (!session) throw new NotFoundException('Session not found');
+
+        const THIRTY_DAYS = 30 * 24 * 60 * 60 * 1000;
+        if (!session.issuedAt ||
+            Date.now() - new Date(session.issuedAt).getTime() > THIRTY_DAYS) {
+            throw new BadRequestException('MFA required');
+        }
+
+        return session;
     }
 
     async login(loginDto: LoginDto) {
@@ -124,9 +130,9 @@ export class AuthService {
             jti,
         };
 
-        const { accessToken, refreshToken: newRefreshToken } = await this.generateToken(newUserPayload);
+        const { accessToken, refreshToken: newRefreshToken } = await this.generateToken(newUserPayload,);
 
-        const newExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+        const newExpiry = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
         const newHashedToken = await bcrypt.hash(newRefreshToken, 10);
 
         // 5️⃣ Update session (rotation)
@@ -140,16 +146,59 @@ export class AuthService {
         };
     }
 
+    //   Req user:  {
+    //   oauthId: '0045d2bd-d399-4edb-bd59-3133da0188e9',
+    //   provider: 'Google',
+    //   providerUserId: '102197185996108400854',
+    //   userId: '96e0736c-2fb1-4db8-9668-efd240ac2bcb',
+    //   user: {
+    //     userId: '96e0736c-2fb1-4db8-9668-efd240ac2bcb',
+    //     username: 'Piyatana',
+    //     email: 'piyatanakj@gmail.com',
+    //     password: '',
+    //     createdAt: 2025-08-13T11:59:44.290Z,
+    //     role: 'User',
+    //     provider: 'Google',
+    //     mfaEnabled: true,
+    //     mfaSecret: 'wgDEsxMJSoNAqAed.k22pKC4hkHudArC1BxGz9A==.tBNdsI38uPnMeuLpf1YsV0rsHwETgKNIA7h1K8BLz44=',
+    //     mfaBackupCodes: [],
+    //     mfaMethod: 'Totp'
+    //   }
+    // }
+
+
+    // Req user for google login:  {
+    //   username: 'Piyatana',
+    //   emails: [ { value: 'piyatanakj@gmail.com', verified: true } ],
+    //   provider: 'Google',
+    //   googleId: '102197185996108400854'
+    // }
+
+    //     Req user for google login service:  {
+    //   username: 'Piyatana',
+    //   emails: [ { value: 'piyatanakj@gmail.com', verified: true } ],
+    //   provider: 'Google',
+    //   googleId: '102197185996108400854'
+    // }
+    // [Nest] 61454  - 08/13/2025, 7:43:02 PM   ERROR [ExceptionsHandler] TypeError: Cannot read properties of undefined (reading 'pendingToken')
+
     async googleLogin(req): Promise<any> {
         if (!req.user) throw new NotFoundException('No user info received for Google login');
 
-        const { emails, username, googleId } = req.user;
-        const email = emails?.[0].value ?? null;
+        console.log('Req user for google login service: ', req.user)
+        const googleId = req.user.googleId || req.user.providerUserId;
+        const email = req.user.emails?.[0]?.value || req.user.user.email;
+        const username = req.user.username || email?.split('@')[0];
+
+        if (!email) {
+            throw new BadRequestException('Email is required from Google OAuth');
+        }
 
         let oauthAccount = await this.oauthService.findOauthAccount(AuthProvider.Google, googleId);
 
         let user = oauthAccount?.user;
         if (!user) {
+            // If no linked OAuth account, check if user exists by email
             user = await this.usersService.findUserByEmail(email);
 
             if (user) {
@@ -168,14 +217,8 @@ export class AuthService {
             }
         }
 
-        const userPayload: UserPayloadDto = {
-            sub: user?.userId,
-            email: email,
-            role: Role.User,
-            jti: uuidv4(),
-        };
-
-        return await this.generateToken(userPayload);
+        const pendingToken = await this.mfaService.generatePendingToken(user.userId);
+        return { pendingToken, mfaRequired: true };
     };
 
     async logout(jti: string) {

@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { UsersModule } from 'src/users/users.module';
@@ -11,6 +11,7 @@ import { SessionModule } from 'src/session/session.module';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { OauthModule } from 'src/oauth/oauth.module';
 import { GoogleStrategy } from './strategies/google.strategy';
+import { MfaModule } from 'src/mfa/mfa.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { GoogleStrategy } from './strategies/google.strategy';
     PassportModule,
     SessionModule,
     OauthModule,
+    forwardRef(() => MfaModule),
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: async () => ({
@@ -25,9 +27,10 @@ import { GoogleStrategy } from './strategies/google.strategy';
         signOptions: { expiresIn: '30m' },
       }),
       inject: [ConfigService],
-    })
+    }),
   ],
   controllers: [AuthController],
   providers: [AuthService, LocalStrategy, JwtStrategy, GoogleStrategy],
+  exports: [AuthService],
 })
 export class AuthModule {}

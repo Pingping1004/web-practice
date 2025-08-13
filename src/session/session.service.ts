@@ -7,7 +7,7 @@ import { SessionPayload } from "src/types/session";
 export class SessionService {
     constructor(
         private readonly prisma: PrismaService,
-    ) {}
+    ) { }
 
     async createSession(sessionPayload: SessionPayload) {
         const newSession = await this.prisma.session.create({

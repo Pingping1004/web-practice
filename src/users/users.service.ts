@@ -1,16 +1,18 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, forwardRef, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from 'prisma/prisma.service';
-import { AuthProvider, Role, User } from '@prisma/client';
+import { AuthProvider, MfaMethod, Role, User } from '@prisma/client';
 import { SignupDto } from 'src/auth/dto/auth.dto';
 import * as bcrypt from 'bcrypt';
 import { OauthService } from 'src/oauth/oauth.service';
+import { MfaService } from 'src/mfa/mfa.service';
 
 @Injectable()
 export class UsersService {
     constructor(
         private readonly prisma: PrismaService,
         private readonly oauthService: OauthService,
-    ) {}
+        @Inject(forwardRef(() => MfaService)) private readonly mfaService: MfaService,
+    ) { }
 
     async createuser(signupDto: SignupDto, provider: AuthProvider, providerUserId?: string): Promise<User> {
         const existingUser = await this.findUserByUserName(signupDto.username);
@@ -20,7 +22,7 @@ export class UsersService {
         if (signupDto.password) hashedPassword = await bcrypt.hash(signupDto.password, 10);
         const result = await this.prisma.user.create({
             data: {
-                email : signupDto.email ?? signupDto.username,
+                email: signupDto.email ?? `${signupDto.username}@gmail.com`,
                 username: signupDto.username,
                 password: hashedPassword ?? '',
                 role: Role.User,
@@ -67,5 +69,17 @@ export class UsersService {
         });
 
         return user ?? undefined;
+    }
+
+    async updateMfaAuth(userId: string, method: MfaMethod, secret: string) {
+        console.log('Encrypted secret in updateMfa: ', secret);
+        await this.prisma.user.update({
+            where: { userId },
+            data: {
+                mfaEnabled: true,
+                mfaMethod: method,
+                mfaSecret: secret,
+            }
+        });
     }
 }
