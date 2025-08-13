@@ -7,14 +7,12 @@ import * as session from 'src/types/session';
 import { MfaService } from 'src/mfa/mfa.service';
 import { GoogleAuthGuard } from './guard/google-auth.guard';
 import { PendingTokenGuard } from './guard/pending-token.guard';
-import { UsersService } from 'src/users/users.service';
 
 
 @Controller('auth')
 export class AuthController {
     constructor(
         private readonly authService: AuthService,
-        private readonly userService: UsersService,
         private readonly mfaService: MfaService,
     ) { }
 

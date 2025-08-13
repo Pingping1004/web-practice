@@ -1,17 +1,15 @@
-import { ConflictException, forwardRef, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from 'prisma/prisma.service';
 import { AuthProvider, MfaMethod, Role, User } from '@prisma/client';
 import { SignupDto } from 'src/auth/dto/auth.dto';
 import * as bcrypt from 'bcrypt';
 import { OauthService } from 'src/oauth/oauth.service';
-import { MfaService } from 'src/mfa/mfa.service';
 
 @Injectable()
 export class UsersService {
     constructor(
         private readonly prisma: PrismaService,
         private readonly oauthService: OauthService,
-        @Inject(forwardRef(() => MfaService)) private readonly mfaService: MfaService,
     ) { }
 
     async createuser(signupDto: SignupDto, provider: AuthProvider, providerUserId?: string): Promise<User> {
@@ -59,7 +57,6 @@ export class UsersService {
 
         if (!user) return null;
 
-        // const { password, ...result } = user;
         return user;
     }
 

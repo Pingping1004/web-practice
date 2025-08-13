@@ -9,7 +9,7 @@ import { SessionModule } from "src/session/session.module";
 
 @Module({
     imports: [
-        forwardRef(() => UsersModule),
+        UsersModule,
         forwardRef(() => AuthModule),
         SessionModule,
         JwtModule.registerAsync({

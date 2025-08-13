@@ -19,7 +19,7 @@ export class MfaService {
     private readonly KEY: Buffer;
 
     constructor(
-        @Inject(forwardRef(() => UsersService)) private readonly userService: UsersService,
+        private readonly userService: UsersService,
         private readonly jwtService: JwtService,
         private readonly sessionService: SessionService,
         @Inject(forwardRef(() => AuthService)) private readonly authService: AuthService,
@@ -42,7 +42,7 @@ export class MfaService {
         await this.userService.updateMfaAuth(userId, MfaMethod.Totp, encryptedSecret);
 
         if (!secret.otpauth_url) throw new InternalServerErrorException('Failed to generate OTP Auth URL')
-        const qrCodeUrl = await this.generateTotpQr(secret.otpauth_url);
+        const qrCodeUrl = await this.generateTotpQr(secret.otpauth_url, 400);
         return {
             base32: secret.base32,
             otpauthUrl: secret.otpauth_url,
@@ -50,8 +50,10 @@ export class MfaService {
         }
     }
 
-    async generateTotpQr(otpauthUrl: string): Promise<string> {
-        const qrCodeUrl = await qrcode.toDataURL(otpauthUrl);
+    async generateTotpQr(otpauthUrl: string, size: number = 300): Promise<string> {
+        const qrCodeUrl = await qrcode.toDataURL(otpauthUrl, {
+            width: size
+        });
         return qrCodeUrl;
     }
 
