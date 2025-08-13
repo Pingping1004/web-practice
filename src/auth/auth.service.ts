@@ -21,7 +21,7 @@ export class AuthService {
 
     private readonly logger = new Logger('AuthService');
 
-    async validateUser(username: string, password: string): Promise<Omit<User, 'password'>> {
+    async validateUser(username: string, password: string): Promise<Omit<User, 'password'> & { isMfaRequired?: boolean }> {
         const DUMMY_HASH = '$2b$10$CwTycUXWue0Thq9StjUM0uJ8e3zoH8JPB8OPm0.9l4qwEYAsfP0r6';
         const user = await this.usersService.findUserByUserName(username);
         let passwordIsValid: boolean = false;
@@ -55,17 +55,12 @@ export class AuthService {
         return { accessToken, refreshToken };
     }
 
-    async isMfaRequired(jti: string) {
-        const session = await this.sessionService.findSessionByJti(jti);
-        if (!session) throw new NotFoundException('Session not found');
-
-        const THIRTY_DAYS = 30 * 24 * 60 * 60 * 1000;
-        if (!session.issuedAt ||
-            Date.now() - new Date(session.issuedAt).getTime() > THIRTY_DAYS) {
-            throw new BadRequestException('MFA required');
+    async checkMfaRequirement(userId: string): Promise<boolean> {
+        const session = await this.sessionService.findActiveSessionByUserId(userId);
+        if (session && session.mfaVerified && !this.mfaService.isExpired(session)) {
+            return false; // skip MFA for active session
         }
-
-        return session;
+        return true; // MFA required
     }
 
     async login(loginDto: LoginDto) {
@@ -74,36 +69,24 @@ export class AuthService {
 
         const user = await this.validateUser(loginDto.username, loginDto.password);
 
-        const jti = uuidv4();
-        const userPayload: UserPayloadDto = {
-            sub: user.userId,
-            email: user.email,
-            role: user.role,
-            jti,
-        };
-
-        const { accessToken, refreshToken } = await this.generateToken(userPayload);
-
-        return {
-            userPayload,
-            accessToken,
-            refreshToken,
+        if (user.mfaEnabled) {
+            const mfaRequired = await this.checkMfaRequirement(user.userId);
+            if (mfaRequired) {
+                // Check if MFA requirement can be skipped (active session not expired)
+                const pendingToken = await this.mfaService.generatePendingToken(user.userId);
+                return { pendingToken, mfaRequired: true };
+            }
         }
+
+        const { accessToken, refreshToken } = await this.mfaService.generateFinalToken(user.userId, true);
+        return { accessToken, refreshToken, mfaRequired: false };
     }
 
     async register(signupDto: SignupDto) {
         const user = await this.usersService.createuser(signupDto, AuthProvider.Local);
 
-        const jti = uuidv4();
-        const userPayload: UserPayloadDto = {
-            sub: user.userId,
-            email: user.email,
-            role: user.role,
-            jti,
-        };
-
-        const { accessToken, refreshToken } = await this.generateToken(userPayload);
-        return { user, accessToken, refreshToken };
+        const pendingToken = await this.mfaService.generatePendingToken(user.userId);
+        return { pendingToken, mfaRequired: true };
     }
 
     async refresh(refreshToken: string) {
@@ -145,42 +128,6 @@ export class AuthService {
             newUserPayload,
         };
     }
-
-    //   Req user:  {
-    //   oauthId: '0045d2bd-d399-4edb-bd59-3133da0188e9',
-    //   provider: 'Google',
-    //   providerUserId: '102197185996108400854',
-    //   userId: '96e0736c-2fb1-4db8-9668-efd240ac2bcb',
-    //   user: {
-    //     userId: '96e0736c-2fb1-4db8-9668-efd240ac2bcb',
-    //     username: 'Piyatana',
-    //     email: 'piyatanakj@gmail.com',
-    //     password: '',
-    //     createdAt: 2025-08-13T11:59:44.290Z,
-    //     role: 'User',
-    //     provider: 'Google',
-    //     mfaEnabled: true,
-    //     mfaSecret: 'wgDEsxMJSoNAqAed.k22pKC4hkHudArC1BxGz9A==.tBNdsI38uPnMeuLpf1YsV0rsHwETgKNIA7h1K8BLz44=',
-    //     mfaBackupCodes: [],
-    //     mfaMethod: 'Totp'
-    //   }
-    // }
-
-
-    // Req user for google login:  {
-    //   username: 'Piyatana',
-    //   emails: [ { value: 'piyatanakj@gmail.com', verified: true } ],
-    //   provider: 'Google',
-    //   googleId: '102197185996108400854'
-    // }
-
-    //     Req user for google login service:  {
-    //   username: 'Piyatana',
-    //   emails: [ { value: 'piyatanakj@gmail.com', verified: true } ],
-    //   provider: 'Google',
-    //   googleId: '102197185996108400854'
-    // }
-    // [Nest] 61454  - 08/13/2025, 7:43:02 PM   ERROR [ExceptionsHandler] TypeError: Cannot read properties of undefined (reading 'pendingToken')
 
     async googleLogin(req): Promise<any> {
         if (!req.user) throw new NotFoundException('No user info received for Google login');

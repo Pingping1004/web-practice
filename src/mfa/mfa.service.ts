@@ -132,6 +132,26 @@ export class MfaService {
         }
     }
 
+    isExpired(session: { issuedAt: Date; mfaVerifiedAt?: Date, expiresAt: Date }): boolean {
+        const THIRTY_DAYS = 30 * 24 * 60 * 60 * 1000;
+
+        const now = Date.now();
+        const issuedTime = new Date(session.issuedAt).getTime();
+
+        // Check if refresh/session itself expired
+        if (session.expiresAt && now > new Date(session.expiresAt).getTime()) {
+            return true;
+        }
+
+        // Check if MFA verification is still valid
+        const mfaVerifiedAt = session.mfaVerifiedAt
+            ? new Date(session.mfaVerifiedAt).getTime()
+            : issuedTime; // fallback to issuedAt if never verified
+
+        return now - mfaVerifiedAt > THIRTY_DAYS;
+    }
+
+
     encryptedSecret(secret: string): string {
         console.log('Input secret: ', secret);
         const iv = randomBytes(this.IV_LENGTH);

@@ -22,60 +22,52 @@ export class AuthController {
     @Post('signup')
     async register(
         @Body() signupDto: SignupDto,
-        @Res({ passthrough: true }) res: Response,
+        @Res() res: Response,
     ) {
-        const { user, accessToken, refreshToken } = await this.authService.register(signupDto);
+        const { pendingToken } = await this.authService.register(signupDto);
 
-        res.cookie('access_token', accessToken, {
+        res.cookie('pending_token', pendingToken, {
             httpOnly: true,
-            secure: false,
-            sameSite: 'lax',
-            maxAge: 30 * 60 * 1000,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax',
+            maxAge: 3 * 60 * 1000,
         });
-
-        res.cookie('refresh_token', refreshToken, {
-            httpOnly: true,
-            secure: false,
-            sameSite: 'lax',
-            maxAge: 30 * 24 * 60 * 60 * 1000,
-        });
-
-        return {
-            message: 'Successfully signup',
-            user,
-            accessToken,
-            refreshToken,
-        };
+        return res.redirect('/auth/mfa/setup');
     }
 
     @Public()
     @Post('login')
     async login(
         @Body() loginDto: LoginDto,
-        @Res({ passthrough: true }) res: Response,
+        @Res() res: Response,
     ) {
-        const { userPayload: user, accessToken, refreshToken } = await this.authService.login(loginDto);
+        const result = await this.authService.login(loginDto);
 
-        res.cookie('access_token', accessToken, {
+        if (result.mfaRequired) {
+            res.cookie('pending_token', result.pendingToken, {
+                httpOnly: true,
+                secure: process.env.NODE_ENV === 'production',
+                sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax',
+                maxAge: 3 * 60 * 1000,
+            });
+            return res.redirect('/auth/mfa/setup');
+        }
+
+        // No MFA required → set tokens directly
+        res.cookie('access_token', result.accessToken, {
             httpOnly: true,
-            secure: false,
+            secure: process.env.NODE_ENV === 'production',
             sameSite: 'lax',
             maxAge: 30 * 60 * 1000,
         });
-
-        res.cookie('refresh_token', refreshToken, {
+        res.cookie('refresh_token', result.refreshToken, {
             httpOnly: true,
-            secure: false,
+            secure: process.env.NODE_ENV === 'production',
             sameSite: 'lax',
             maxAge: 30 * 24 * 60 * 60 * 1000,
         });
 
-        return {
-            message: 'Successfully login',
-            user,
-            accessToken,
-            refreshToken,
-        }
+        return res.redirect('/users/profile');
     }
 
     @Post('refresh')
@@ -101,11 +93,6 @@ export class AuthController {
         });
 
         return { accessToken, user };
-    }
-
-    @Get('mfa/check')
-    async getProtectedResource(@Req() req) {
-        await this.authService.isMfaRequired(req.user.jti);
     }
 
     @Public()
@@ -150,7 +137,6 @@ export class AuthController {
         if (!userId || !totp) throw new NotFoundException('userId or Totp for MFA not found');
 
         try {
-            // await this.mfaService.verifyPendingToken(userId);
             const { accessToken, refreshToken } = await this.mfaService.validateTotp(userId, totp);
 
             res.cookie('access_token', accessToken, {

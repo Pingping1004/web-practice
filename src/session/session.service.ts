@@ -45,6 +45,18 @@ export class SessionService {
         return newRefreshSession;
     }
 
+    async findActiveSessionByUserId(userId: string) {
+        const session = await this.prisma.session.findFirst({
+            where: {
+                userId,
+                expiresAt: { gt: new Date() }, // session not expired
+            },
+            orderBy: { issuedAt: 'desc' },
+        });
+
+        return session || null;
+    }
+
     async deleteExpiredTokens(): Promise<number> {
         const result = await this.prisma.session.deleteMany({
             where: {
