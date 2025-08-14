@@ -66,6 +66,7 @@ export class AuthController {
         });
 
         return res.redirect('/users/profile');
+        // return res.redirect('/auth/refresh'); call API in frontend in real use case since cannot redirect in server due to different HTTP method
     }
 
     @Post('refresh')
