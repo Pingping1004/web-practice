@@ -1,4 +1,4 @@
-import { Controller, Get, Req, UnauthorizedException, UseGuards } from '@nestjs/common';
+import { Controller, Get, Req, UseGuards } from '@nestjs/common';
 import { Role, User } from '@prisma/client';
 import { UsersService } from './users.service';
 import { Roles } from 'src/auth/decorator/role.decorator';

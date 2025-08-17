@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { User, AuthProvider } from '@prisma/client';
 import { UsersService } from 'src/users/users.service';
 import * as bcrypt from 'bcrypt';
@@ -8,6 +8,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { SessionService } from 'src/session/session.service';
 import { OauthService } from 'src/oauth/oauth.service';
 import { MfaService } from 'src/mfa/mfa.service';
+import { DeviceService } from 'src/device/device.service';
 
 @Injectable()
 export class AuthService {
@@ -17,6 +18,7 @@ export class AuthService {
         private readonly sessionService: SessionService,
         private readonly oauthService: OauthService,
         private readonly mfaService: MfaService,
+        private readonly deviceService: DeviceService,
     ) { }
 
     private readonly logger = new Logger('AuthService');
@@ -63,27 +65,32 @@ export class AuthService {
         return true; // MFA required
     }
 
-    async login(loginDto: LoginDto) {
+    async login(loginDto: LoginDto, deviceId: string, ipAddress: string) {
         if (!loginDto.username) throw new NotFoundException('Username not found in login DTO');
         if (!loginDto.password) throw new NotFoundException('Password not found in login DTO');
 
-        const user = await this.validateUser(loginDto.username, loginDto.password);
+        const { userId, mfaEnabled } = await this.validateUser(loginDto.username, loginDto.password);
 
-        if (user.mfaEnabled) {
-            const mfaRequired = await this.checkMfaRequirement(user.userId);
-            if (mfaRequired) {
-                // Check if MFA requirement can be skipped (active session not expired)
-                const pendingToken = await this.mfaService.generatePendingToken(user.userId);
-                return { pendingToken, mfaRequired: true };
+        const deviceHash = await this.deviceService.hashDeviceId(deviceId);
+        const isDeviceVerified = await this.deviceService.verifyDevice(userId, deviceHash);
+
+        // let mfaRequired = false;
+        if (mfaEnabled) {
+            const mfaRequired = await this.checkMfaRequirement(userId);
+
+            if (mfaRequired || !isDeviceVerified) {
+                await this.deviceService.registerDevice(userId, ipAddress, deviceId)
+                const pendingToken = await this.mfaService.generatePendingToken(userId);
+                return { pendingToken, mfaRequired: true, userId, isDeviceVerified };
             }
         }
 
-        const { accessToken, refreshToken } = await this.mfaService.generateFinalToken(user.userId, true);
-        return { accessToken, refreshToken, mfaRequired: false };
+        const { accessToken, refreshToken } = await this.mfaService.generateFinalToken(userId, true);
+        return { accessToken, refreshToken, mfaRequired: false, userId, isDeviceVerified };
     }
 
     async register(signupDto: SignupDto) {
-        const user = await this.usersService.createuser(signupDto, AuthProvider.Local);
+        const user = await this.usersService.createUser(signupDto, AuthProvider.Local);
 
         const pendingToken = await this.mfaService.generatePendingToken(user.userId);
         return { pendingToken, mfaRequired: true };
@@ -111,6 +118,7 @@ export class AuthService {
             email: payload.email,
             role: payload.role,
             jti,
+            userId: payload.userId,
         };
 
         const { accessToken, refreshToken: newRefreshToken } = await this.generateToken(newUserPayload,);
@@ -129,43 +137,43 @@ export class AuthService {
         };
     }
 
-    async googleLogin(req): Promise<any> {
+    async googleLogin(req, deviceId: string, ipAddress: string): Promise<any> {
         if (!req.user) throw new NotFoundException('No user info received for Google login');
 
-        console.log('Req user for google login service: ', req.user)
+        console.log('Req user for google login service: ', req.user);
         const googleId = req.user.googleId || req.user.providerUserId;
         const email = req.user.emails?.[0]?.value || req.user.user.email;
         const username = req.user.username || email?.split('@')[0];
 
-        if (!email) {
-            throw new BadRequestException('Email is required from Google OAuth');
-        }
-
         let oauthAccount = await this.oauthService.findOauthAccount(AuthProvider.Google, googleId);
-
         let user = oauthAccount?.user;
+
         if (!user) {
             // If no linked OAuth account, check if user exists by email
             user = await this.usersService.findUserByEmail(email);
 
-            if (user) {
-                if (user.provider !== AuthProvider.Google) {
-                    throw new ForbiddenException(`Account with this email exists via ${user.provider}, please log in with that method.`)
-                }
-            } else {
-                user = await this.usersService.createuser(
-                    {
-                        email,
-                        username,
-                    },
-                    AuthProvider.Google,
-                    googleId,
-                );
+            if (user && user.provider !== AuthProvider.Google) {
+                throw new ForbiddenException(`Account with this email exists via ${user.provider}, please log in with that method.`)
             }
+
+            user ??= await this.usersService.createUser({
+                    email, username,
+                }, AuthProvider.Google, googleId);
         }
 
-        const pendingToken = await this.mfaService.generatePendingToken(user.userId);
-        return { pendingToken, mfaRequired: true };
+        console.log('User ID: ', user.userId);
+        const deviceHash = await this.deviceService.hashDeviceId(deviceId);
+        const isDeviceVerified = await this.deviceService.verifyDevice(user.userId, deviceHash);
+        const mfaRequired = await this.checkMfaRequirement(user.userId);
+
+        if (mfaRequired || !isDeviceVerified) {
+            await this.deviceService.registerDevice(user.userId, ipAddress, deviceId);
+            const pendingToken = await this.mfaService.generatePendingToken(user.userId);
+            return { mfaRequired, isDeviceVerified, pendingToken, userId: user.userId };
+        }
+
+        const { accessToken, refreshToken } = await this.mfaService.generateFinalToken(user.userId, true);
+        return { accessToken, refreshToken, mfaRequired: false, isDeviceVerified: true, userId: user.userId };
     };
 
     async logout(jti: string) {

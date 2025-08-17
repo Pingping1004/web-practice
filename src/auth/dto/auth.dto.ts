@@ -45,4 +45,8 @@ export class UserPayloadDto {
     @IsString()
     @IsNotEmpty()
     jti: string;
+
+    @IsString()
+    @IsNotEmpty()
+    userId: string;
 }

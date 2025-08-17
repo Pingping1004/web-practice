@@ -1,4 +1,4 @@
-import { Body, Controller, Get, NotFoundException, Post, Req, Res, UnauthorizedException, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, NotFoundException, Post, Req, Res, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { Public } from './decorator/public.decorator';
 import { LoginDto, SignupDto } from './dto/auth.dto';
@@ -7,6 +7,7 @@ import * as session from 'src/types/session';
 import { MfaService } from 'src/mfa/mfa.service';
 import { GoogleAuthGuard } from './guard/google-auth.guard';
 import { PendingTokenGuard } from './guard/pending-token.guard';
+import { DeviceService } from 'src/device/device.service';
 
 
 @Controller('auth')
@@ -14,6 +15,7 @@ export class AuthController {
     constructor(
         private readonly authService: AuthService,
         private readonly mfaService: MfaService,
+        private readonly deviceService: DeviceService,
     ) { }
 
     @Public()
@@ -36,10 +38,34 @@ export class AuthController {
     @Public()
     @Post('login')
     async login(
+        @Req() req: session.RequestWithUser,
         @Body() loginDto: LoginDto,
         @Res() res: Response,
     ) {
-        const result = await this.authService.login(loginDto);
+        const ip = req.ip;
+        const deviceId = req.headers['user-agent'];
+
+        if (!ip || !deviceId) {
+            throw new BadRequestException(`Cannot find IP or deviceId or user data in request object`);
+        }
+
+        const result = await this.authService.login(loginDto, deviceId, ip);
+
+        if (!result.isDeviceVerified) {
+            res.cookie('pending_token', result.pendingToken, {
+                httpOnly: true,
+                secure: process.env.NODE_ENV === 'production',
+                sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax',
+                maxAge: 3 * 60 * 1000,
+            });
+
+            // return res.status(200).json({
+            //     message: 'MFA verification required',
+            //     mfaUrl: '/auth/mfa/verify',
+            //     pendingToken: result.pendingToken,
+            // });
+            return res.redirect('/auth/mfa/setup');
+        }
 
         if (result.mfaRequired) {
             res.cookie('pending_token', result.pendingToken, {
@@ -48,6 +74,7 @@ export class AuthController {
                 sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax',
                 maxAge: 3 * 60 * 1000,
             });
+
             return res.redirect('/auth/mfa/setup');
         }
 
@@ -58,6 +85,7 @@ export class AuthController {
             sameSite: 'lax',
             maxAge: 30 * 60 * 1000,
         });
+
         res.cookie('refresh_token', result.refreshToken, {
             httpOnly: true,
             secure: process.env.NODE_ENV === 'production',
@@ -97,17 +125,64 @@ export class AuthController {
     @Public()
     @Get('google/callback')
     @UseGuards(GoogleAuthGuard)
-    async googleAuthRedirect(@Req() req, @Res() res: Response) {
-        const { pendingToken } = await this.authService.googleLogin(req);
+    async googleAuthRedirect(@Req() req: session.RequestWithUser, @Res() res: Response) {
+        const ip = req.ip;
+        const deviceId: string = req.headers['user-agent'] || 'unknown';
+        const userId = req.user?.userId;
+        const deviceHash = await this.deviceService.hashDeviceId(deviceId);
 
-        res.cookie('pending_token', pendingToken, {
+        if (!userId || !deviceHash || !ip) {
+            throw new NotFoundException('Missing required device info or userId or ipAddress');
+        }
+
+        const result = await this.authService.googleLogin(req, deviceHash, ip);
+
+        console.log('Is verified? ', result.isDeviceVerified);
+        console.log('Is MFA required? ', result.mfaRequired);
+
+        if (!result.isDeviceVerified) {
+            res.cookie('pending_token', result.pendingToken, {
+                httpOnly: true,
+                secure: process.env.NODE_ENV === 'production',
+                sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax',
+                maxAge: 3 * 60 * 1000,
+            });
+
+            // return res.status(200).json({
+            //     message: 'MFA verification required',
+            //     mfaUrl: '/auth/mfa/verify',
+            //     pendingToken: result.pendingToken,
+            // });
+            return res.redirect('/auth/mfa/setup');
+        }
+
+        if (result.mfaRequired) {
+            res.cookie('pending_token', result.pendingToken, {
+                httpOnly: true,
+                secure: process.env.NODE_ENV === 'production',
+                sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax',
+                maxAge: 3 * 60 * 1000,
+            });
+
+            return res.redirect('/auth/mfa/setup');
+        }
+
+        res.cookie('access_token', result.accessToken, {
             httpOnly: true,
             secure: process.env.NODE_ENV === 'production',
-            sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax',
-            maxAge: 3 * 60 * 1000,
+            sameSite: 'lax',
+            maxAge: 30 * 60 * 1000,
         });
 
-        return res.redirect('/auth/mfa/setup');
+        res.cookie('refresh_token', result.refreshToken, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'lax',
+            maxAge: 30 * 24 * 60 * 60 * 1000,
+        });
+
+        await this.deviceService.registerDevice(result.userId, ip, deviceId);
+        return res.redirect('/users/profile');
     }
 
     @Public()
@@ -132,7 +207,14 @@ export class AuthController {
         @Body('totp') totp: string,
         @Res() res: Response
     ) {
+        const ip = req.ip;
+        const deviceId = req.headers['user-agent'];
+
+        if (!deviceId || !ip) throw new NotFoundException('deviceId or user IP not found');
+
         const userId = req.user?.sub;
+        console.log('Device ID for MFA verify: ', deviceId);
+        console.log('userId: ', userId);
         if (!userId || !totp) throw new NotFoundException('userId or Totp for MFA not found');
 
         try {
@@ -152,10 +234,12 @@ export class AuthController {
                 maxAge: 30 * 24 * 60 * 60 * 1000,
             });
 
+            await this.deviceService.registerDevice(userId, ip, deviceId);
+
             res.clearCookie('pending_token');
             return res.redirect('/users/profile');
         } catch (error) {
-            console.error('Failed to verify TOTP: ', error.message);
+            console.error('Failed to verify TOTP: ', error);
             throw new UnauthorizedException('Invalid TOTP code');
         }
     }

@@ -12,7 +12,7 @@ export class UsersService {
         private readonly oauthService: OauthService,
     ) { }
 
-    async createuser(signupDto: SignupDto, provider: AuthProvider, providerUserId?: string): Promise<User> {
+    async createUser(signupDto: SignupDto, provider: AuthProvider, providerUserId?: string): Promise<User> {
         const existingUser = await this.findUserByUserName(signupDto.username);
         if (existingUser) throw new ConflictException('User already register');
 

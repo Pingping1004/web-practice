@@ -12,6 +12,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { OauthModule } from 'src/oauth/oauth.module';
 import { GoogleStrategy } from './strategies/google.strategy';
 import { MfaModule } from 'src/mfa/mfa.module';
+import { DeviceModule } from 'src/device/device.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { MfaModule } from 'src/mfa/mfa.module';
     PassportModule,
     SessionModule,
     OauthModule,
+    DeviceModule,
     forwardRef(() => MfaModule),
     JwtModule.registerAsync({
       imports: [ConfigModule],

@@ -18,10 +18,30 @@ enum AuthProvider {
   Google
 }
 
-enum MfaMethod {
+enum MfaMethod {X
   Totp
   Email
   None
+}
+
+enum DeviceStatus {
+  Trusted
+  Banned
+  Unverified
+}
+
+enum TrustLevel {
+  Blacklist
+  Basic
+  Privilege
+  Admin
+}
+
+enum BanSeverity {
+  Permanent
+  High
+  Medium
+  Low
 }
 
 model User {
@@ -35,10 +55,15 @@ model User {
 
   oauthAccounts     OAuthAccount[]
   sessions          Session[]
+  device            Device[]
 
   mfaEnabled        Boolean         @default(false)
   mfaSecret         String?
   mfaMethod         MfaMethod       @default(None)
+
+  @@index([userId])
+  @@index([email])
+  @@index([username])
 }
 
 model OAuthAccount {
@@ -49,6 +74,8 @@ model OAuthAccount {
   user              User            @relation(fields: [userId], references: [userId])
 
   @@unique([provider, providerUserId])
+
+  @@index([oauthId])
 }
 
 model Session {
@@ -60,10 +87,31 @@ model Session {
   issuedAt          DateTime        @default(now())
   isUsed            Boolean         @default(false)
   isRevoked         Boolean         @default(false)
-  ipAddress         String?
-  userAgent         String?
 
   mfaVerified       Boolean         @default(false)
 
   user              User            @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
+  @@index([jti])
+}
+
+model Device {
+  deviceId          String          @id @default(uuid())
+  userId            String
+  deviceHash        String
+  ipAddress         String
+  deviceStatus      DeviceStatus
+  trustLevel        TrustLevel
+  banSeverity       BanSeverity?
+  expiresAt         DateTime?
+  lastUsedAt        DateTime        @default(now())
+  createdAt         DateTime        @default(now())
+  isRevoked         Boolean         @default(false)
+
+  user              User            @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
+  @@unique([userId, deviceHash])
+  @@index([userId])
+  @@index([ipAddress])
+  @@index([deviceStatus])
 }

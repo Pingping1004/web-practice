@@ -31,8 +31,9 @@ export class MfaService {
         this.KEY = Buffer.from(keyString, 'hex');
     }
     async generateMfaSecret(userId: string) {
+        const { username } = await this.userService.findUserByUserId(userId);
         const secret = speakeasy.generateSecret({
-            name: `Practice-auth`,
+            name: `Practice-auth : ${username}`,
             length: 20,
         });
 
@@ -89,6 +90,7 @@ export class MfaService {
             email: email,
             role: role,
             jti: uuidv4(),
+            userId,
         };
 
         const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
