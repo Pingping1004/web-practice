@@ -123,6 +123,13 @@ export class AuthController {
     }
 
     @Public()
+    @Get('google')
+    @UseGuards(GoogleAuthGuard)
+    async googleLogin() {
+        // Handle google login via passport-strategy
+    }
+
+    @Public()
     @Get('google/callback')
     @UseGuards(GoogleAuthGuard)
     async googleAuthRedirect(@Req() req: session.RequestWithUser, @Res() res: Response) {
