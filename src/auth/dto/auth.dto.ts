@@ -1,5 +1,5 @@
 import { Role } from "@prisma/client";
-import { IsEmail, IsEnum, IsNotEmpty, IsOptional, IsString } from "class-validator";
+import { IsDate, IsEmail, IsEnum, IsNotEmpty, IsOptional, IsString } from "class-validator";
 
 export class SignupDto {
     @IsString()
@@ -27,6 +27,10 @@ export class LoginDto {
     @IsString()
     @IsOptional()
     password?: string;
+
+    @IsString()
+    @IsOptional()
+    deviceId?: string;
 }
 
 export class UserPayloadDto {
@@ -44,9 +48,13 @@ export class UserPayloadDto {
 
     @IsString()
     @IsNotEmpty()
-    jti: string;
-
-    @IsString()
-    @IsNotEmpty()
     userId: string;
+
+    @IsDate()
+    @IsOptional()
+    mfaVerifiedAt?: Date | null;
+}
+
+export interface UserJwtPayload extends UserPayloadDto {
+    jti: string;
 }

@@ -18,7 +18,7 @@ enum AuthProvider {
   Google
 }
 
-enum MfaMethod {X
+enum MfaMethod {
   Totp
   Email
   None
@@ -76,6 +76,7 @@ model OAuthAccount {
   @@unique([provider, providerUserId])
 
   @@index([oauthId])
+  @@index([userId])
 }
 
 model Session {
@@ -83,35 +84,55 @@ model Session {
   jti               String          @unique
   hashedToken       String          @unique
   userId            String
+  deviceId          String          // Link to device table as foreign key
+
+  // JWT claims
   expiresAt         DateTime
   issuedAt          DateTime        @default(now())
+  lastUsedAt        DateTime        @default(now())
+
+  // Session state
   isUsed            Boolean         @default(false)
   isRevoked         Boolean         @default(false)
+  RevokedAt         DateTime?
+  revokedReason     String?
 
+  ipAddress         String
   mfaVerified       Boolean         @default(false)
+  mfaVerifiedAt     DateTime?
 
   user              User            @relation(fields: [userId], references: [userId], onDelete: Cascade)
+  device            Device          @relation(fields: [deviceId], references: [deviceId], onDelete: Cascade)
 
   @@index([jti])
+  @@index([deviceId])
+  @@index([expiresAt])
 }
 
 model Device {
   deviceId          String          @id @default(uuid())
   userId            String
   deviceHash        String
+  deviceName        String?
   ipAddress         String
+
   deviceStatus      DeviceStatus
   trustLevel        TrustLevel
   banSeverity       BanSeverity?
+
   expiresAt         DateTime?
   lastUsedAt        DateTime        @default(now())
   createdAt         DateTime        @default(now())
+
   isRevoked         Boolean         @default(false)
+  RevokedAt         DateTime?
+  revokedReason     String?
 
   user              User            @relation(fields: [userId], references: [userId], onDelete: Cascade)
+  sessions          Session[]
 
-  @@unique([userId, deviceHash])
   @@index([userId])
+  @@index([deviceHash])
   @@index([ipAddress])
   @@index([deviceStatus])
 }

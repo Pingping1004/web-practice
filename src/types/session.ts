@@ -6,6 +6,8 @@ export interface SessionPayload {
     hashedToken: string;
     userId: string;
     expiresAt: Date;
+    ipAddress: string
+    deviceId: string;
     isUsed?: boolean;
     isRevoked?: boolean;
     mfaVerified?: boolean;
@@ -21,4 +23,10 @@ export interface PendingMfaPayload {
     type: 'pending_mfa';
     iat?: number;
     exp?: number;
+}
+
+export enum MfaRequirementStatus {
+    expired,
+    required,
+    skip
 }

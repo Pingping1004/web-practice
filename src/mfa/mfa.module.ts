@@ -6,12 +6,14 @@ import { ConfigModule, ConfigService } from "@nestjs/config";
 import { jwtConstants } from "src/auth/constant";
 import { AuthModule } from "src/auth/auth.module";
 import { SessionModule } from "src/session/session.module";
+import { DeviceModule } from "src/device/device.module";
 
 @Module({
     imports: [
         UsersModule,
+        DeviceModule,
         forwardRef(() => AuthModule),
-        SessionModule,
+        forwardRef(() => SessionModule),
         JwtModule.registerAsync({
             imports: [ConfigModule],
             useFactory: async () => ({

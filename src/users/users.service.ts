@@ -69,7 +69,6 @@ export class UsersService {
     }
 
     async updateMfaAuth(userId: string, method: MfaMethod, secret: string) {
-        console.log('Encrypted secret in updateMfa: ', secret);
         await this.prisma.user.update({
             where: { userId },
             data: {

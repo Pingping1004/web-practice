@@ -1,14 +1,15 @@
-import { ForbiddenException, Injectable, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { User, AuthProvider } from '@prisma/client';
 import { UsersService } from 'src/users/users.service';
 import * as bcrypt from 'bcrypt';
-import { LoginDto, SignupDto, UserPayloadDto } from './dto/auth.dto';
+import { LoginDto, SignupDto, UserJwtPayload, UserPayloadDto } from './dto/auth.dto';
 import { JwtService } from '@nestjs/jwt';
 import { v4 as uuidv4 } from 'uuid';
 import { SessionService } from 'src/session/session.service';
 import { OauthService } from 'src/oauth/oauth.service';
 import { MfaService } from 'src/mfa/mfa.service';
 import { DeviceService } from 'src/device/device.service';
+import { MfaRequirementStatus } from 'src/types/session';
 
 @Injectable()
 export class AuthService {
@@ -41,8 +42,10 @@ export class AuthService {
         return result;
     }
 
-    async generateToken(payload: UserPayloadDto) {
-        const jti = uuidv4();
+    async generateToken(payload: UserPayloadDto, existingJti?: string) {
+        console.log('Original JTI: ', existingJti);
+        const jti = existingJti || uuidv4();
+        console.log('JTI in generateToken: ', jti);
 
         const accessToken = await this.jwtService.signAsync({
             ...payload,
@@ -54,38 +57,79 @@ export class AuthService {
             jti,
         }, { expiresIn: '30d' });
 
-        return { accessToken, refreshToken };
+        return { accessToken, refreshToken, jti };
     }
 
-    async checkMfaRequirement(userId: string): Promise<boolean> {
-        const session = await this.sessionService.findActiveSessionByUserId(userId);
-        if (session && session.mfaVerified && !this.mfaService.isExpired(session)) {
-            return false; // skip MFA for active session
+    async checkMfaRequirement(userId: string) {
+        const session = await this.sessionService.findSessionByUserId(userId);
+        if (!session) return { mfaRequired: MfaRequirementStatus.required };
+
+        const activeSession = await this.sessionService.findActiveSessionByUserId(userId);
+        if (!activeSession) return { mfaRequired: MfaRequirementStatus.expired };
+
+        const mfaVerifiedAt = session.mfaVerified && session.mfaVerifiedAt
+            ? session.mfaVerifiedAt
+            : session.issuedAt;
+
+        const mfaTrusted = session.mfaVerified && !this.mfaService.isSessionExpired({
+            issuedAt: session.issuedAt,
+            mfaVerifiedAt,
+            expiresAt: session.expiresAt,
+        });
+
+        if (mfaTrusted) return { mfaRequired: MfaRequirementStatus.skip }
+
+        return {
+            mfaRequired: MfaRequirementStatus.required,
+            sessionId: session.sessionId,
+            deviceId: session.deviceId,
         }
-        return true; // MFA required
     }
 
-    async login(loginDto: LoginDto, deviceId: string, ipAddress: string) {
-        if (!loginDto.username) throw new NotFoundException('Username not found in login DTO');
-        if (!loginDto.password) throw new NotFoundException('Password not found in login DTO');
+    async login(loginDto: LoginDto, deviceId: string, ipAddress: string, userAgent: string) {
+        if (!loginDto.username || !loginDto.password) {
+            throw new BadRequestException('Username and password are required');
+        }
 
         const { userId, mfaEnabled } = await this.validateUser(loginDto.username, loginDto.password);
 
-        const deviceHash = await this.deviceService.hashDeviceId(deviceId);
-        const isDeviceVerified = await this.deviceService.verifyDevice(userId, deviceHash);
+        const isDeviceVerified = await this.deviceService.verifyDevice(deviceId);
 
-        // let mfaRequired = false;
         if (mfaEnabled) {
-            const mfaRequired = await this.checkMfaRequirement(userId);
+            const mfaRequired = (await this.checkMfaRequirement(userId)).mfaRequired;
 
-            if (mfaRequired || !isDeviceVerified) {
-                await this.deviceService.registerDevice(userId, ipAddress, deviceId)
+            if (mfaRequired === MfaRequirementStatus.expired) {
+                throw new UnauthorizedException('Session expired, please login again');
+            }
+
+            const mustDoMfa = (mfaRequired !== MfaRequirementStatus.skip) || !isDeviceVerified;
+            console.log('Is MFA must do? ', mfaRequired);
+            console.log('IS device verified? ', isDeviceVerified);
+            
+            if (mustDoMfa) {
                 const pendingToken = await this.mfaService.generatePendingToken(userId);
                 return { pendingToken, mfaRequired: true, userId, isDeviceVerified };
             }
         }
 
-        const { accessToken, refreshToken } = await this.mfaService.generateFinalToken(userId, true);
+        const existingSession = await this.sessionService.findActiveSessionByDevice(userId, deviceId);
+        console.log('Device ID: ', deviceId);
+        
+        let sessionJti: string;
+        if (existingSession) {
+            sessionJti = existingSession.jti;
+        } else {
+            sessionJti = uuidv4();
+            console.log('Session JTI is newly created');
+        }
+        
+        const activeSession = await this.sessionService.findActiveSessionByDevice(userId, deviceId);
+        if (activeSession) {
+            const isSessionValid = await this.sessionService.verifySession(activeSession.jti, deviceId, userId);
+            if (!isSessionValid) throw new UnauthorizedException(`Session is not verified`);
+        }
+        
+        const { accessToken, refreshToken } = await this.mfaService.generateFinalToken(userId, true, ipAddress, userAgent, deviceId, sessionJti);
         return { accessToken, refreshToken, mfaRequired: false, userId, isDeviceVerified };
     }
 
@@ -96,7 +140,7 @@ export class AuthService {
         return { pendingToken, mfaRequired: true };
     }
 
-    async refresh(refreshToken: string) {
+    async refresh(refreshToken: string, deviceId: string, userId: string) {
         // 1️⃣ Verify the refresh token
         const payload = await this.jwtService.verifyAsync(refreshToken);
 
@@ -112,12 +156,11 @@ export class AuthService {
         }
 
         // 4️⃣ Generate a new refresh token & hash it
-        const jti = uuidv4();
-        const newUserPayload: UserPayloadDto = {
+        const newUserPayload: UserJwtPayload = {
             sub: payload.sub,
             email: payload.email,
             role: payload.role,
-            jti,
+            jti: payload.jti,
             userId: payload.userId,
         };
 
@@ -127,7 +170,7 @@ export class AuthService {
         const newHashedToken = await bcrypt.hash(newRefreshToken, 10);
 
         // 5️⃣ Update session (rotation)
-        await this.sessionService.refreshSession(payload.jti, newHashedToken, newExpiry);
+        await this.sessionService.refreshSession(newHashedToken, newExpiry, deviceId, userId);
 
         // 5️⃣ Return new tokens
         return {
@@ -137,10 +180,9 @@ export class AuthService {
         };
     }
 
-    async googleLogin(req, deviceId: string, ipAddress: string): Promise<any> {
+    async googleLogin(req, deviceId: string, ipAddress: string, userAgent: string): Promise<any> {
         if (!req.user) throw new NotFoundException('No user info received for Google login');
 
-        console.log('Req user for google login service: ', req.user);
         const googleId = req.user.googleId || req.user.providerUserId;
         const email = req.user.emails?.[0]?.value || req.user.user.email;
         const username = req.user.username || email?.split('@')[0];
@@ -157,26 +199,53 @@ export class AuthService {
             }
 
             user ??= await this.usersService.createUser({
-                    email, username,
-                }, AuthProvider.Google, googleId);
+                email, username,
+            }, AuthProvider.Google, googleId);
         }
 
-        console.log('User ID: ', user.userId);
-        const deviceHash = await this.deviceService.hashDeviceId(deviceId);
-        const isDeviceVerified = await this.deviceService.verifyDevice(user.userId, deviceHash);
-        const mfaRequired = await this.checkMfaRequirement(user.userId);
+        const isDeviceVerified = await this.deviceService.verifyDevice(deviceId);
+        const mfaStatus = (await this.checkMfaRequirement(user.userId)).mfaRequired;
 
-        if (mfaRequired || !isDeviceVerified) {
-            await this.deviceService.registerDevice(user.userId, ipAddress, deviceId);
+        if (mfaStatus === MfaRequirementStatus.expired) {
+            throw new UnauthorizedException('Session expired, please login again');
+        }
+
+        if ((mfaStatus !== MfaRequirementStatus.skip) || !isDeviceVerified) {
             const pendingToken = await this.mfaService.generatePendingToken(user.userId);
-            return { mfaRequired, isDeviceVerified, pendingToken, userId: user.userId };
+            return { mfaStatus, isDeviceVerified, pendingToken, userId: user.userId };
         }
 
-        const { accessToken, refreshToken } = await this.mfaService.generateFinalToken(user.userId, true);
+        const activeSession = await this.sessionService.findActiveSessionByDevice(user.userId, deviceId);
+        if (activeSession) {
+            await this.sessionService.verifySession(activeSession.jti, deviceId, user.userId);
+        }
+
+        const existingSession = await this.sessionService.findActiveSessionByDevice(user.userId, deviceId);
+
+        let sessionJti: string;
+        if (existingSession) {
+            sessionJti = existingSession.jti;
+        } else {
+            sessionJti = uuidv4();
+        }
+
+        const { accessToken, refreshToken } = await this.mfaService.generateFinalToken(user.userId, true, ipAddress, userAgent, deviceId, sessionJti);
         return { accessToken, refreshToken, mfaRequired: false, isDeviceVerified: true, userId: user.userId };
     };
 
-    async logout(jti: string) {
+    // Revoke by device instead to change from global logout to device logout
+    async logout(deviceId: string) {
+        if (!deviceId) throw new NotFoundException('Device ID for logout not found');
+        const revokeCount = await this.sessionService.revokeSessionByDevice(deviceId);
+
+        if (revokeCount === 0) {
+            throw new NotFoundException(`No active session found for device ${deviceId}`)
+        }
+
+        return { success: true, revokedSessions: revokeCount };
+    }
+
+    async logoutFromAllDevices(jti: string) {
         await this.sessionService.revokedSessionByJti(jti);
     }
 }

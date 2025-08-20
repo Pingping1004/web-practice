@@ -1,13 +1,14 @@
 import { BadRequestException, Body, Controller, Get, NotFoundException, Post, Req, Res, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { Public } from './decorator/public.decorator';
-import { LoginDto, SignupDto } from './dto/auth.dto';
+import { LoginDto, SignupDto, UserJwtPayload } from './dto/auth.dto';
 import type { Request, Response } from 'express';
 import * as session from 'src/types/session';
 import { MfaService } from 'src/mfa/mfa.service';
 import { GoogleAuthGuard } from './guard/google-auth.guard';
 import { PendingTokenGuard } from './guard/pending-token.guard';
 import { DeviceService } from 'src/device/device.service';
+import { v4 as uuidv4 } from 'uuid';
 
 
 @Controller('auth')
@@ -21,9 +22,22 @@ export class AuthController {
     @Public()
     @Post('signup')
     async register(
+        @Req() req: session.RequestWithUser,
         @Body() signupDto: SignupDto,
         @Res() res: Response,
     ) {
+        // let deviceId = req.cookies['deviceId'];
+        // if (!deviceId) {
+        //     deviceId = uuidv4();
+
+        //     res.cookie('deviceId', deviceId, {
+        //         httpOnly: true,
+        //         sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax',
+        //         secure: process.env.NODE_ENV === 'production',
+        //         maxAge: 1000 * 60 * 60 * 24 * 365, // 1 year
+        //         path: '/',
+        //     });
+        // }
         const { pendingToken } = await this.authService.register(signupDto);
 
         res.cookie('pending_token', pendingToken, {
@@ -32,6 +46,7 @@ export class AuthController {
             sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax',
             maxAge: 3 * 60 * 1000,
         });
+
         return res.redirect('/auth/mfa/setup');
     }
 
@@ -43,13 +58,30 @@ export class AuthController {
         @Res() res: Response,
     ) {
         const ip = req.ip;
-        const deviceId = req.headers['user-agent'];
+        const userAgent = req.headers['user-agent'];
 
-        if (!ip || !deviceId) {
-            throw new BadRequestException(`Cannot find IP or deviceId or user data in request object`);
+        let deviceId = req.cookies['deviceId'];
+        console.log('deviceId in login controller: ', deviceId);
+
+        if (!deviceId) {
+            deviceId = uuidv4();
+            console.log('Newly generate deviceId');
+
+            res.cookie('deviceId', deviceId, {
+                httpOnly: true,
+                sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax',
+                secure: process.env.NODE_ENV === 'production',
+                maxAge: 1000 * 60 * 60 * 24 * 365, // 1 year
+                path: '/',
+            });
         }
 
-        const result = await this.authService.login(loginDto, deviceId, ip);
+        if (!ip || !userAgent) {
+            throw new BadRequestException(`Cannot find IP or user agent in request object`);
+        }
+
+        const result = await this.authService.login(loginDto, deviceId, ip, userAgent);
+        console.log('Login result: ', result);
 
         if (!result.isDeviceVerified) {
             res.cookie('pending_token', result.pendingToken, {
@@ -59,11 +91,6 @@ export class AuthController {
                 maxAge: 3 * 60 * 1000,
             });
 
-            // return res.status(200).json({
-            //     message: 'MFA verification required',
-            //     mfaUrl: '/auth/mfa/verify',
-            //     pendingToken: result.pendingToken,
-            // });
             return res.redirect('/auth/mfa/setup');
         }
 
@@ -99,11 +126,16 @@ export class AuthController {
 
     @Post('refresh')
     async refresh(
-        @Req() req: Request,
+        @Req() req: session.RequestWithUser,
         @Res({ passthrough: true }) res: Response,
     ) {
+        const deviceId = req.headers['user-agent'];
+        const userId = req.user?.userId;
         const refreshToken = req.cookies['refresh_token'] || req.body.refreshToken;
-        const { newUserPayload: user, accessToken, refreshToken: newRefreshToken } = await this.authService.refresh(refreshToken);
+
+        if (!deviceId || !userId) throw new NotFoundException('deviceId or userId not found');
+
+        const { newUserPayload: user, accessToken, refreshToken: newRefreshToken } = await this.authService.refresh(refreshToken, deviceId, userId);
 
         res.cookie('access_token', accessToken, {
             httpOnly: true,
@@ -134,18 +166,26 @@ export class AuthController {
     @UseGuards(GoogleAuthGuard)
     async googleAuthRedirect(@Req() req: session.RequestWithUser, @Res() res: Response) {
         const ip = req.ip;
-        const deviceId: string = req.headers['user-agent'] || 'unknown';
-        const userId = req.user?.userId;
-        const deviceHash = await this.deviceService.hashDeviceId(deviceId);
+        const userAgent = req.headers['user-agent'];
 
-        if (!userId || !deviceHash || !ip) {
-            throw new NotFoundException('Missing required device info or userId or ipAddress');
+        let deviceId = req.cookies['deviceId'];
+        if (!deviceId) {
+            deviceId = uuidv4();
+
+            res.cookie('deviceId', deviceId, {
+                httpOnly: true,
+                sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax',
+                secure: process.env.NODE_ENV === 'production',
+                maxAge: 1000 * 60 * 60 * 24 * 365, // 1 year
+                path: '/',
+            });
         }
 
-        const result = await this.authService.googleLogin(req, deviceHash, ip);
+        if (!ip || !userAgent) {
+            throw new NotFoundException('Missing required device info or userId or user agent or ipAddress');
+        }
 
-        console.log('Is verified? ', result.isDeviceVerified);
-        console.log('Is MFA required? ', result.mfaRequired);
+        const result = await this.authService.googleLogin(req, deviceId, ip, userAgent);
 
         if (!result.isDeviceVerified) {
             res.cookie('pending_token', result.pendingToken, {
@@ -155,11 +195,6 @@ export class AuthController {
                 maxAge: 3 * 60 * 1000,
             });
 
-            // return res.status(200).json({
-            //     message: 'MFA verification required',
-            //     mfaUrl: '/auth/mfa/verify',
-            //     pendingToken: result.pendingToken,
-            // });
             return res.redirect('/auth/mfa/setup');
         }
 
@@ -188,7 +223,6 @@ export class AuthController {
             maxAge: 30 * 24 * 60 * 60 * 1000,
         });
 
-        await this.deviceService.registerDevice(result.userId, ip, deviceId);
         return res.redirect('/users/profile');
     }
 
@@ -215,17 +249,19 @@ export class AuthController {
         @Res() res: Response
     ) {
         const ip = req.ip;
-        const deviceId = req.headers['user-agent'];
+        const userAgent = req.headers['user-agent'];
 
-        if (!deviceId || !ip) throw new NotFoundException('deviceId or user IP not found');
+        const deviceId = req.cookies['deviceId'];
+        if (!deviceId) throw new BadRequestException(`Missing deviceId`);
+
+        if (!userAgent || !ip) throw new NotFoundException('user agent or user IP not found');
 
         const userId = req.user?.sub;
-        console.log('Device ID for MFA verify: ', deviceId);
-        console.log('userId: ', userId);
+        console.log('User agent for MFA verify: ', userAgent);
         if (!userId || !totp) throw new NotFoundException('userId or Totp for MFA not found');
 
         try {
-            const { accessToken, refreshToken } = await this.mfaService.validateTotp(userId, totp);
+            const { accessToken, refreshToken } = await this.mfaService.validateTotp(userId, totp, ip, userAgent, deviceId);
 
             res.cookie('access_token', accessToken, {
                 httpOnly: true,
@@ -241,8 +277,6 @@ export class AuthController {
                 maxAge: 30 * 24 * 60 * 60 * 1000,
             });
 
-            await this.deviceService.registerDevice(userId, ip, deviceId);
-
             res.clearCookie('pending_token');
             return res.redirect('/users/profile');
         } catch (error) {
@@ -252,8 +286,8 @@ export class AuthController {
     }
 
     @Post('logout')
-    async logout(@Req() req: session.RequestWithUser, @Res({ passthrough: true }) res: Response) {
-        const jti = req.user?.jti;
+    async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+        const { jti } = (req.user as UserJwtPayload);
 
         if (!jti) {
             throw new UnauthorizedException('JTI is missing from token');

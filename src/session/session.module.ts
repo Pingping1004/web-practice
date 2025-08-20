@@ -1,9 +1,13 @@
-import { Module } from "@nestjs/common";
+import { forwardRef, Module } from "@nestjs/common";
 import { PrismaModule } from "prisma/prisma.module";
 import { SessionService } from "./session.service";
+import { MfaModule } from "src/mfa/mfa.module";
 
 @Module({
-    imports: [PrismaModule],
+    imports: [
+        PrismaModule,
+        forwardRef(() => MfaModule),
+    ],
     providers: [SessionService],
     exports: [SessionService],
 })

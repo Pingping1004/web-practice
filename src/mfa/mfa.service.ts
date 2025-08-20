@@ -3,14 +3,15 @@ import * as speakeasy from 'speakeasy';
 import * as qrcode from 'qrcode';
 import * as bcrypt from 'bcrypt'
 import { UsersService } from "src/users/users.service";
-import { MfaMethod } from "@prisma/client";
+import { DeviceStatus, MfaMethod, TrustLevel } from "@prisma/client";
 import { createCipheriv, createDecipheriv, randomBytes } from "crypto";
 import { v4 as uuidv4 } from 'uuid';
 import { JwtService } from "@nestjs/jwt";
 import { AuthService } from "src/auth/auth.service";
-import { UserPayloadDto } from "src/auth/dto/auth.dto";
+import { UserJwtPayload } from "src/auth/dto/auth.dto";
 import { PendingMfaPayload } from "src/types/session";
 import { SessionService } from "src/session/session.service";
+import { DeviceService } from "src/device/device.service";
 
 @Injectable()
 export class MfaService {
@@ -21,7 +22,8 @@ export class MfaService {
     constructor(
         private readonly userService: UsersService,
         private readonly jwtService: JwtService,
-        private readonly sessionService: SessionService,
+        private readonly deviceService: DeviceService,
+        @Inject(forwardRef(() => SessionService)) private readonly sessionService: SessionService,
         @Inject(forwardRef(() => AuthService)) private readonly authService: AuthService,
     ) {
         const keyString = process.env.ENCRYPTION_KEY;
@@ -58,7 +60,7 @@ export class MfaService {
         return qrCodeUrl;
     }
 
-    async validateTotp(userId: string, userTotp: string) {
+    async validateTotp(userId: string, userTotp: string, ipAddress: string, userAgent: string, deviceId: string) {
         const { mfaSecret: encryptedSecret } = await this.userService.findUserByUserId(userId);
         console.log('Encrypted secret from DB before decrypt:', encryptedSecret);
 
@@ -77,35 +79,51 @@ export class MfaService {
 
         if (!isTotpValid) throw new UnauthorizedException('Invalid 6-digit code');
 
-        const { accessToken, refreshToken } = await this.generateFinalToken(userId, true);
-        return { accessToken, refreshToken };
+        const { accessToken, refreshToken, jti } = await this.generateFinalToken(userId, true, ipAddress, userAgent, deviceId);
+        return { accessToken, refreshToken, jti };
     }
 
-    async generateFinalToken(userId: string, isVerified: boolean) {
+    async generateFinalToken(userId: string, isVerified: boolean, ipAddress: string, userAgent: string, deviceId: string, existingJti?: string) {
         if (!isVerified) throw new BadRequestException('MFA verification required');
 
+        let device = await this.deviceService.findDeviceById(deviceId);
+        if (!device) {
+            device = await this.deviceService.registerDevice(userId, ipAddress, userAgent, deviceId)
+        } else {
+            await this.deviceService.updateDeviceStatus(deviceId, DeviceStatus.Trusted, TrustLevel.Basic)
+        }
+
+        console.log('Device ID from params: ', deviceId);
+        console.log('Device ID from device: ', device.deviceId);
+
         const { email, role } = await this.userService.findUserByUserId(userId);
-        const userPayload: UserPayloadDto = {
+        const sessionJti = existingJti || uuidv4();
+
+        const userPayload: UserJwtPayload = {
             sub: userId,
             email: email,
             role: role,
-            jti: uuidv4(),
             userId,
+            jti: sessionJti,
         };
 
+        const { accessToken, refreshToken } = await this.authService.generateToken(userPayload, sessionJti);
+
         const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-        const { accessToken, refreshToken } = await this.authService.generateToken(userPayload);
         const hashingToken = await bcrypt.hash(refreshToken, 10);
 
         await this.sessionService.createSession({
-            jti: userPayload.jti,
+            jti: sessionJti,
             hashedToken: hashingToken,
             userId,
             expiresAt,
+            ipAddress,
+            // deviceId: device.deviceId,
+            deviceId,
             mfaVerified: isVerified,
         });
 
-        return { accessToken, refreshToken };
+        return { accessToken, refreshToken, jti: sessionJti };
     }
 
     async generatePendingToken(userId: string): Promise<string> {
@@ -136,23 +154,19 @@ export class MfaService {
         }
     }
 
-    isExpired(session: { issuedAt: Date; mfaVerifiedAt?: Date, expiresAt: Date }): boolean {
+    isSessionExpired(session: { issuedAt: Date; mfaVerifiedAt?: Date, expiresAt: Date }): boolean {
         const THIRTY_DAYS = 30 * 24 * 60 * 60 * 1000;
 
         const now = Date.now();
         const issuedTime = new Date(session.issuedAt).getTime();
+        const expiresAtTime = session.expiresAt.getTime();
 
-        // Check if refresh/session itself expired
-        if (session.expiresAt && now > new Date(session.expiresAt).getTime()) {
-            return true;
-        }
+        if (now > expiresAtTime) return true;
 
-        // Check if MFA verification is still valid
-        const mfaVerifiedAt = session.mfaVerifiedAt
-            ? new Date(session.mfaVerifiedAt).getTime()
-            : issuedTime; // fallback to issuedAt if never verified
+        const mfaTime = session.mfaVerifiedAt?.getTime() ?? issuedTime;
+        if (now - mfaTime > THIRTY_DAYS) return true;
 
-        return now - mfaVerifiedAt > THIRTY_DAYS;
+        return false;
     }
 
 

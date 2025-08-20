@@ -22,7 +22,6 @@ export class UsersController {
     @Get('admin')
     async getAdminProfile(@Req() req): Promise<{ user: Omit<User, 'password'>; message: string }> {
         const { userId } = req.user;
-        console.log('userId: ', userId);
 
         const user = await this.usersService.findUserByUserId(userId);
         // if (user.role !== Role.Admin) throw new UnauthorizedException('Only admin can access this endpoint');
