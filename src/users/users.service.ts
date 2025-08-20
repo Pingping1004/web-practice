@@ -13,15 +13,15 @@ export class UsersService {
     ) { }
 
     async createUser(signupDto: SignupDto, provider: AuthProvider, providerUserId?: string): Promise<User> {
-        const existingUser = await this.findUserByUserName(signupDto.username);
+        const existingUser = await this.findUserByUserName(signupDto.email);
         if (existingUser) throw new ConflictException('User already register');
 
         let hashedPassword;
         if (signupDto.password) hashedPassword = await bcrypt.hash(signupDto.password, 10);
         const result = await this.prisma.user.create({
             data: {
-                email: signupDto.email ?? `${signupDto.username}@gmail.com`,
-                username: signupDto.username,
+                email: signupDto.email,
+                username: `${(signupDto.email).split('@')[0]}`,
                 password: hashedPassword ?? '',
                 role: Role.User,
                 provider: provider,

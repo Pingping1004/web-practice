@@ -2,13 +2,9 @@ import { Role } from "@prisma/client";
 import { IsDate, IsEmail, IsEnum, IsNotEmpty, IsOptional, IsString } from "class-validator";
 
 export class SignupDto {
-    @IsString()
-    @IsNotEmpty()
-    username: string;
-
     @IsEmail()
     @IsOptional()
-    email?: string;
+    email: string;
 
     @IsString()
     @IsOptional()
@@ -16,10 +12,6 @@ export class SignupDto {
 }
 
 export class LoginDto {
-    @IsString()
-    @IsOptional()
-    username?: string;
-
     @IsEmail()
     @IsOptional()
     email?: string;
@@ -27,10 +19,6 @@ export class LoginDto {
     @IsString()
     @IsOptional()
     password?: string;
-
-    @IsString()
-    @IsOptional()
-    deviceId?: string;
 }
 
 export class UserPayloadDto {

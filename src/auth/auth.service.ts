@@ -24,16 +24,16 @@ export class AuthService {
 
     private readonly logger = new Logger('AuthService');
 
-    async validateUser(username: string, password: string): Promise<Omit<User, 'password'> & { isMfaRequired?: boolean }> {
+    async validateUser(email: string, password: string): Promise<Omit<User, 'password'> & { isMfaRequired?: boolean }> {
         const DUMMY_HASH = '$2b$10$CwTycUXWue0Thq9StjUM0uJ8e3zoH8JPB8OPm0.9l4qwEYAsfP0r6';
-        const user = await this.usersService.findUserByUserName(username);
+        const user = await this.usersService.findUserByEmail(email);
         let passwordIsValid: boolean = false;
 
         if (user?.password) {
             passwordIsValid = await bcrypt.compare(password, user.password);
         } else {
             await bcrypt.compare(password, DUMMY_HASH);
-            this.logger.warn('Login attempt for non-existent user: ', username);
+            this.logger.warn('Login attempt for non-existent user: ', email);
         }
 
         if (!passwordIsValid || !user) throw new UnauthorizedException('Password is incorrect');
@@ -87,11 +87,11 @@ export class AuthService {
     }
 
     async login(loginDto: LoginDto, deviceId: string, ipAddress: string, userAgent: string) {
-        if (!loginDto.username || !loginDto.password) {
-            throw new BadRequestException('Username and password are required');
+        if (!loginDto.email || !loginDto.password) {
+            throw new BadRequestException('Email and password are required');
         }
 
-        const { userId, mfaEnabled } = await this.validateUser(loginDto.username, loginDto.password);
+        const { userId, mfaEnabled } = await this.validateUser(loginDto.email, loginDto.password);
 
         const isDeviceVerified = await this.deviceService.verifyDevice(deviceId);
 
@@ -199,7 +199,7 @@ export class AuthService {
             }
 
             user ??= await this.usersService.createUser({
-                email, username,
+                email,
             }, AuthProvider.Google, googleId);
         }
 
