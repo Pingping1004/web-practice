@@ -13,7 +13,7 @@ export class UsersService {
     ) { }
 
     async createUser(signupDto: SignupDto, provider: AuthProvider, providerUserId?: string): Promise<User> {
-        const existingUser = await this.findUserByUserName(signupDto.email);
+        const existingUser = await this.findUserByEmail(signupDto.email);
         if (existingUser) throw new ConflictException('User already register');
 
         let hashedPassword;
