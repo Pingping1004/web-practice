@@ -92,6 +92,7 @@ export class SessionService {
             where: { deviceId, isRevoked: false },
             data: {
                 isRevoked: true,
+                isActived: false,
                 RevokedAt: new Date(),
                 revokedReason: reason ?? 'User logout',
             }
@@ -145,7 +146,7 @@ export class SessionService {
                 hashedToken: newHashedToken,
                 expiresAt: newExpiry,
                 lastUsedAt: new Date(),
-                isUsed: false,
+                isActived: true,
             }
         });
 

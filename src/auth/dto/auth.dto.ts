@@ -45,4 +45,5 @@ export class UserPayloadDto {
 
 export interface UserJwtPayload extends UserPayloadDto {
     jti: string;
+    deviceId: string;
 }

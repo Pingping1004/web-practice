@@ -1,6 +1,6 @@
 import { ExtractJwt, Strategy } from "passport-jwt";
 import { PassportStrategy } from "@nestjs/passport";
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger, UnauthorizedException } from "@nestjs/common";
 import { jwtConstants } from "../constant";
 import { UsersService } from "src/users/users.service";
 import { Role } from "@prisma/client";
@@ -20,17 +20,25 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
             ]),
             secretOrKey: jwtConstants.secret,
             ignoreExpiration: false,
+            passReqToCallback: true,
         });
     }
 
-    async validate(payload: { sub: string, email: string, role: Role, jti: string }) {
+    async validate(req: Request, payload: { sub: string, email: string, role: Role, jti: string, deviceId: string }) {
+        const cookieDeviceId = req.cookies?.deviceId;
+
+        if (!cookieDeviceId || cookieDeviceId !== payload.deviceId) {
+            throw new UnauthorizedException('Device mismatch');
+        }
+
         try {
-            await this.usersService.findUserByUserId(payload.sub)
-            return { 
+            await this.usersService.findUserByUserId(payload.sub);
+            return {
                 userId: payload.sub,
-                email: payload.email, 
-                role: payload.role, 
-                jti: payload.jti 
+                email: payload.email,
+                role: payload.role,
+                jti: payload.jti,
+                deviceId: payload.deviceId,
             };
         } catch (error) {
             this.logger.warn(`User not found or error in JWT validate: ${error.message}`);

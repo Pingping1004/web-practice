@@ -23,7 +23,8 @@ export class DeviceService {
                     userId,
                     deviceHash,
                     ipAddress,
-                    deviceStatus: DeviceStatus.Trusted,
+                    isMfaTrusted: false,
+                    deviceStatus: DeviceStatus.Unverified,
                     trustLevel: TrustLevel.Basic,
                     deviceName: this.getDeviceName(userAgent)
                 },
@@ -85,25 +86,26 @@ export class DeviceService {
     }
 
     // Extension for more specific device auth management according to business logic
-    async updateDeviceStatus(
-        deviceId: string, status: DeviceStatus, trustLevel: TrustLevel
-    ) {
+    async updateMfaTrusted(deviceId: string) {
         const updateDevice = await this.prisma.device.update({
             where: { deviceId },
             data: {
-                deviceStatus: status,
-                trustLevel,
-            }
+                mfaTrustExpiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+                deviceStatus: DeviceStatus.Trusted,
+                trustLevel: TrustLevel.Basic,
+                isMfaTrusted: true,
+                mfaLastVerifiedAt: new Date(),
+            },
         });
 
-        return updateDevice.deviceStatus;
+        return updateDevice;
     }
 
-    async revokeDevice(deviceId: string) {
+    async setRevokeDevice(deviceId: string, isRevoked: boolean) {
         await this.prisma.device.update({
             where: { deviceId },
             data: {
-                isRevoked: true,
+                isRevoked,
             }
         });
     }

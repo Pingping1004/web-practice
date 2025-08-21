@@ -33,15 +33,14 @@ export class MfaService {
         this.KEY = Buffer.from(keyString, 'hex');
     }
     async generateMfaSecret(userId: string) {
-        const { username } = await this.userService.findUserByUserId(userId);
-        const secret = speakeasy.generateSecret({
-            name: `Practice-auth : ${username}`,
-            length: 20,
-        });
+        console.log('Generate MFA secret is activated');
+        const { username, mfaEnabled, mfaSecret } = await this.userService.findUserByUserId(userId);
+
+        if (mfaEnabled && mfaSecret) return { alreadyConfigured: true as const }
+
+        const secret = speakeasy.generateSecret({ name: `Practice-auth : ${username}`, length: 20});
 
         const encryptedSecret = this.encryptedSecret(secret.base32);
-        console.log('Orignal base32 secret: ', secret.base32);
-
         await this.userService.updateMfaAuth(userId, MfaMethod.Totp, encryptedSecret);
 
         if (!secret.otpauth_url) throw new InternalServerErrorException('Failed to generate OTP Auth URL')
@@ -90,7 +89,7 @@ export class MfaService {
         if (!device) {
             device = await this.deviceService.registerDevice(userId, ipAddress, userAgent, deviceId)
         } else {
-            await this.deviceService.updateDeviceStatus(deviceId, DeviceStatus.Trusted, TrustLevel.Basic)
+            await this.deviceService.updateMfaTrusted(deviceId);
         }
 
         console.log('Device ID from params: ', deviceId);
@@ -105,6 +104,7 @@ export class MfaService {
             role: role,
             userId,
             jti: sessionJti,
+            deviceId,
         };
 
         const { accessToken, refreshToken } = await this.authService.generateToken(userPayload, sessionJti);

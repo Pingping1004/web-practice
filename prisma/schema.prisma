@@ -92,7 +92,7 @@ model Session {
   lastUsedAt        DateTime        @default(now())
 
   // Session state
-  isUsed            Boolean         @default(false)
+  isActived            Boolean         @default(false)
   isRevoked         Boolean         @default(false)
   RevokedAt         DateTime?
   revokedReason     String?
@@ -116,6 +116,10 @@ model Device {
   deviceName        String?
   ipAddress         String
 
+  mfaLastVerifiedAt    DateTime?
+  isMfaTrusted         Boolean         @default(false)
+  mfaTrustExpiresAt    DateTime?
+
   deviceStatus      DeviceStatus
   trustLevel        TrustLevel
   banSeverity       BanSeverity?
@@ -125,7 +129,7 @@ model Device {
   createdAt         DateTime        @default(now())
 
   isRevoked         Boolean         @default(false)
-  RevokedAt         DateTime?
+  revokedAt         DateTime?
   revokedReason     String?
 
   user              User            @relation(fields: [userId], references: [userId], onDelete: Cascade)

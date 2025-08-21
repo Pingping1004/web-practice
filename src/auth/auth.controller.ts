@@ -2,13 +2,13 @@ import { BadRequestException, Body, Controller, Get, NotFoundException, Post, Re
 import { AuthService } from './auth.service';
 import { Public } from './decorator/public.decorator';
 import { LoginDto, SignupDto, UserJwtPayload } from './dto/auth.dto';
-import type { Request, Response } from 'express';
+import type { CookieOptions, Request, Response } from 'express';
 import * as session from 'src/types/session';
 import { MfaService } from 'src/mfa/mfa.service';
 import { GoogleAuthGuard } from './guard/google-auth.guard';
 import { PendingTokenGuard } from './guard/pending-token.guard';
-import { DeviceService } from 'src/device/device.service';
 import { v4 as uuidv4 } from 'uuid';
+import { UsersService } from 'src/users/users.service';
 
 
 @Controller('auth')
@@ -16,7 +16,7 @@ export class AuthController {
     constructor(
         private readonly authService: AuthService,
         private readonly mfaService: MfaService,
-        private readonly deviceService: DeviceService,
+        private readonly userService: UsersService,
     ) { }
 
     @Public()
@@ -26,18 +26,18 @@ export class AuthController {
         @Body() signupDto: SignupDto,
         @Res() res: Response,
     ) {
-        // let deviceId = req.cookies['deviceId'];
-        // if (!deviceId) {
-        //     deviceId = uuidv4();
+        let deviceId = req.cookies['deviceId'];
+        if (!deviceId) {
+            deviceId = uuidv4();
 
-        //     res.cookie('deviceId', deviceId, {
-        //         httpOnly: true,
-        //         sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax',
-        //         secure: process.env.NODE_ENV === 'production',
-        //         maxAge: 1000 * 60 * 60 * 24 * 365, // 1 year
-        //         path: '/',
-        //     });
-        // }
+            res.cookie('deviceId', deviceId, {
+                httpOnly: true,
+                sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax',
+                secure: process.env.NODE_ENV === 'production',
+                maxAge: 1000 * 60 * 60 * 24 * 365, // 1 year
+                path: '/',
+            });
+        }
         const { pendingToken } = await this.authService.register(signupDto);
 
         res.cookie('pending_token', pendingToken, {
@@ -129,7 +129,7 @@ export class AuthController {
         @Req() req: session.RequestWithUser,
         @Res({ passthrough: true }) res: Response,
     ) {
-        const deviceId = req.headers['user-agent'];
+        const deviceId = req.cookies['deviceId'];
         const userId = req.user?.userId;
         const refreshToken = req.cookies['refresh_token'] || req.body.refreshToken;
 
@@ -236,7 +236,16 @@ export class AuthController {
         const { sub: userId } = await this.mfaService.verifyPendingToken(pendingToken);
         if (!userId) throw new NotFoundException('Invalid or expiring pending token');
 
-        const { base32, otpauthUrl, qrCodeUrl } = await this.mfaService.generateMfaSecret(userId);
+        const user = await this.userService.findUserByUserId(userId);
+        if (user.mfaEnabled && user.mfaSecret) {
+            return {
+                redirect: '/auth/mfa/verify',
+                pendingToken,
+            };
+        }
+
+        const mfaSecret = await this.mfaService.generateMfaSecret(userId);
+        const { base32, otpauthUrl, qrCodeUrl } = mfaSecret;
         return { base32, otpauthUrl, qrCodeUrl, pendingToken };
     }
 
@@ -287,25 +296,28 @@ export class AuthController {
 
     @Post('logout')
     async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
-        const { jti } = (req.user as UserJwtPayload);
+        const deviceId = req.cookies['deviceId'];
+        const { userId } = (req.user as UserJwtPayload);
 
-        if (!jti) {
-            throw new UnauthorizedException('JTI is missing from token');
+        console.log('Device Id for logout: ', deviceId);
+        console.log('User Id for logout: ', userId);
+
+        if (!userId || !deviceId) {
+            throw new UnauthorizedException('userId or deviceId is missing from token');
         }
 
-        await this.authService.logout(jti);
+        await this.authService.logout(userId, deviceId);
 
-        res.clearCookie('access_token', {
+        // Clear all auth-related cookies (consistent options)
+        const cookieOptions: CookieOptions = {
             httpOnly: true,
-            sameSite: 'lax',
-            secure: false,
-        });
+            sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax',
+            secure: process.env.NODE_ENV === 'production',
+            path: '/', // ensure all paths are cleared
+        };
 
-        res.clearCookie('refresh_token', {
-            httpOnly: true,
-            sameSite: 'lax',
-            secure: false,
-        });
+        res.clearCookie('access_token', cookieOptions);
+        res.clearCookie('refresh_token', cookieOptions);
 
         return { message: `Successfully logout` };
     }

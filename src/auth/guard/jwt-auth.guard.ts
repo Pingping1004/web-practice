@@ -3,11 +3,14 @@ import { Reflector } from "@nestjs/core";
 import { AuthGuard } from "@nestjs/passport";
 import { isObservable, lastValueFrom } from "rxjs";
 import { IS_PUBLIC_KEY } from "../decorator/public.decorator";
+import { UserJwtPayload } from "../dto/auth.dto";
+import { SessionService } from "src/session/session.service";
 
 @Injectable()
 export class JwtAuthGuard extends AuthGuard('jwt') {
     constructor(
         private readonly reflector: Reflector,
+        private readonly sessionService: SessionService,
     ) {
         super();
     }
@@ -20,14 +23,21 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
 
         if (isPublic) return true;
 
-        const result = super.canActivate(context);
-        if (result instanceof Promise) {
-            return await result;
-        } else if (isObservable(result)) {
-            return await lastValueFrom(result);
-        } else {
-            return result;
+        const req = context.switchToHttp().getRequest();
+        const result = await super.canActivate(context);
+
+        const user = req.user as UserJwtPayload;
+        console.log('JWT payload: ', req.user);
+        if (!user || !user.deviceId) {
+            throw new UnauthorizedException('Missing deviceId in token');
         }
+
+        const session = await this.sessionService.findActiveSessionByDevice(user.userId, user.deviceId);
+        if (!session || session?.isRevoked) {
+            throw new UnauthorizedException(`Session revoked or invalid device`);
+        }
+
+        return true;
     }
 
     handleRequest<TUser = any>(
