@@ -13,6 +13,7 @@ import { IpThrottlerGuard } from './auth/guard/ip-throttler.guard';
 import { MfaModule } from './mfa/mfa.module';
 import { DeviceModule } from './device/device.module';
 import { UserDeviceModule } from './userDevice/userDevice.module';
+import { ResetPassModule } from './resetPass/resetPass.module';
 
 @Module({
   imports: [
@@ -35,6 +36,7 @@ import { UserDeviceModule } from './userDevice/userDevice.module';
     MfaModule,
     DeviceModule,
     UserDeviceModule,
+    ResetPassModule,
   ],
   controllers: [AppController],
   providers: [ 
