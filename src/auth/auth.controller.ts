@@ -280,7 +280,7 @@ export class AuthController {
 
         try {
             const userDevice = await this.userDeviceService.findUserDevice(userId, deviceId);
-            if (!userDevice) throw new NotFoundException('User devicefor MFA verify not found');
+            if (!userDevice) throw new NotFoundException('User device for MFA verify not found');
             await this.mfaService.validateTotp(userId, totp);
 
             const { accessToken, refreshToken } = await this.mfaService.generateFinalToken(userId, true, ip, userAgent, deviceId, userDevice?.userDeviceId);
