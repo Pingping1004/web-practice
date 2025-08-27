@@ -22,7 +22,6 @@ export class MfaService {
     constructor(
         private readonly userService: UserService,
         private readonly jwtService: JwtService,
-        private readonly deviceService: DeviceService,
         private readonly userDeviceService: UserDeviceService,
         @Inject(forwardRef(() => SessionService)) private readonly sessionService: SessionService,
         @Inject(forwardRef(() => AuthService)) private readonly authService: AuthService,
