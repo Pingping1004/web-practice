@@ -97,16 +97,13 @@ export class UserDeviceService {
     }
 
     async isUserDeviceVerified(userId: string, deviceId: string): Promise<boolean> {
-        console.log('UserId: ', userId);
-        console.log('DeviceId: ', deviceId);
-
         const userDevice = await this.findUserDevice(userId, deviceId);
 
         if (!userDevice) throw new NotFoundException('Not found device to verify');
-        if (!userDevice.expiresAt || !userDevice.mfaLastVerifiedAt) return false;
+        if (!userDevice.mfaLastVerifiedAt || !userDevice.mfaTrustExpiresAt) return false;
 
-        const isVerified = userDevice?.deviceStatus !== DeviceStatus.Banned &&
-            userDevice?.isMfaTrusted && userDevice?.expiresAt > new Date();
+        const isVerified = userDevice.deviceStatus !== DeviceStatus.Banned &&
+            userDevice.isMfaTrusted && userDevice?.mfaTrustExpiresAt > new Date();
 
         return !!isVerified;
     }
