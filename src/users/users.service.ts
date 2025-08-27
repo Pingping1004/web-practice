@@ -6,7 +6,7 @@ import * as bcrypt from 'bcrypt';
 import { OauthService } from 'src/oauth/oauth.service';
 
 @Injectable()
-export class userService {
+export class UserService {
     constructor(
         private readonly prisma: PrismaService,
         private readonly oauthService: OauthService,

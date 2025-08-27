@@ -2,7 +2,7 @@ import { ExtractJwt, Strategy } from "passport-jwt";
 import { PassportStrategy } from "@nestjs/passport";
 import { Injectable, Logger, UnauthorizedException } from "@nestjs/common";
 import { jwtConstants } from "../constant";
-import { userService } from "src/users/users.service";
+import { UserService } from "src/users/users.service";
 import { Role } from "@prisma/client";
 import type { Request } from "express";
 
@@ -10,7 +10,7 @@ import type { Request } from "express";
 export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     private readonly logger = new Logger('JwtStrategy');
     constructor(
-        private readonly userService: userService,
+        private readonly userService: UserService,
     ) {
         super({
             jwtFromRequest: ExtractJwt.fromExtractors([

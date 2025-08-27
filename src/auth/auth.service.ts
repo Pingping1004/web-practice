@@ -1,6 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { User, AuthProvider, DeviceStatus, SessionStatus, Session, Role } from '@prisma/client';
-import { userService } from 'src/users/users.service';
+import { UserService } from 'src/users/users.service';
 import * as bcrypt from 'bcrypt';
 import { LoginDto, SignupDto, UserJwtPayload } from './dto/auth.dto';
 import { JwtService } from '@nestjs/jwt';
@@ -14,7 +14,7 @@ import { DeviceService } from 'src/device/device.service';
 @Injectable()
 export class AuthService {
     constructor(
-        private readonly userService: userService,
+        private readonly userService: UserService,
         private readonly jwtService: JwtService,
         private readonly sessionService: SessionService,
         private readonly oauthService: OauthService,

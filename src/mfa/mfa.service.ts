@@ -2,7 +2,7 @@ import { BadRequestException, forwardRef, Inject, Injectable, InternalServerErro
 import * as speakeasy from 'speakeasy';
 import * as qrcode from 'qrcode';
 import * as bcrypt from 'bcrypt'
-import { userService } from "src/users/users.service";
+import { UserService } from "src/users/users.service";
 import { MfaMethod, SessionStatus } from "@prisma/client";
 import { createCipheriv, createDecipheriv, randomBytes } from "crypto";
 import { v4 as uuidv4 } from 'uuid';
@@ -20,7 +20,7 @@ export class MfaService {
     private readonly KEY: Buffer;
 
     constructor(
-        private readonly userService: userService,
+        private readonly userService: UserService,
         private readonly jwtService: JwtService,
         private readonly deviceService: DeviceService,
         private readonly userDeviceService: UserDeviceService,

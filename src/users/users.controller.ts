@@ -1,6 +1,6 @@
 import { Controller, Get, Req, UseGuards } from '@nestjs/common';
 import { Role, User } from '@prisma/client';
-import { userService } from './users.service';
+import { UserService } from './users.service';
 import { Roles } from 'src/auth/decorator/role.decorator';
 import { RolesGuard } from 'src/auth/guard/roles.guard';
 import { UserJwtPayload } from 'src/auth/dto/auth.dto';
@@ -8,7 +8,7 @@ import { UserJwtPayload } from 'src/auth/dto/auth.dto';
 @Controller('users')
 export class UsersController {
     constructor(
-        private readonly userService: userService,
+        private readonly userService: UserService,
     ) {}
 
     @Get('profile')

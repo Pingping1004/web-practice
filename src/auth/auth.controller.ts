@@ -8,7 +8,7 @@ import { MfaService } from 'src/mfa/mfa.service';
 import { GoogleAuthGuard } from './guard/google-auth.guard';
 import { PendingTokenGuard } from './guard/pending-token.guard';
 import { v4 as uuidv4 } from 'uuid';
-import { userService } from 'src/users/users.service';
+import { UserService } from 'src/users/users.service';
 import { UserDeviceService } from 'src/userDevice/userDevice.service';
 
 
@@ -17,7 +17,7 @@ export class AuthController {
     constructor(
         private readonly authService: AuthService,
         private readonly mfaService: MfaService,
-        private readonly userService: userService,
+        private readonly userService: UserService,
         private readonly userDeviceService: UserDeviceService,
     ) { }
 
