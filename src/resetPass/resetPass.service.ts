@@ -3,7 +3,6 @@ import { JwtService } from "@nestjs/jwt";
 import { UserService } from "src/users/users.service";
 import { v4 as uuidv4 } from 'uuid';
 import * as bcrypt from 'bcrypt';
-import nodemailer from 'nodemailer';
 import { PrismaService } from "prisma/prisma.service";
 import { MailService } from "src/mail/mail.service";
 
@@ -18,22 +17,21 @@ export class ResetPassService {
 
     async requestPasswordReset(email: string) {
         const user = await this.userService.findUserByEmail(email);
+        if (!user) return;
 
-        if (user) {
-            const resetToken = await this.generateResetToken(user.userId);
-            const hashedToken = await bcrypt.hash(resetToken, 10);
+        const resetToken = await this.generateResetToken(user.userId);
+        const hashedToken = await bcrypt.hash(resetToken, 10);
 
-            await this.prisma.resetPassword.create({
-                data: {
-                    userId: user.userId,
-                    tokenHash: hashedToken,
-                    expiresAt: new Date(Date.now() + 1000 * 60 * 10),
-                }
-            });
+        await this.prisma.resetPassword.create({
+            data: {
+                userId: user.userId,
+                tokenHash: hashedToken,
+                expiresAt: new Date(Date.now() + 1000 * 60 * 10),
+            }
+        });
 
-            await this.mailService.sendPasswordResetEmail(email, resetToken);
-            return hashedToken;
-        }
+        await this.mailService.sendPasswordResetEmail(email, resetToken);
+        return { success: true };
     }
 
     async generateResetToken(userId: string): Promise<string> {
