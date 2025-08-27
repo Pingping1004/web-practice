@@ -1,19 +1,20 @@
 import { Controller, Get, Req, UseGuards } from '@nestjs/common';
 import { Role, User } from '@prisma/client';
-import { UsersService } from './users.service';
+import { userService } from './users.service';
 import { Roles } from 'src/auth/decorator/role.decorator';
 import { RolesGuard } from 'src/auth/guard/roles.guard';
+import { UserJwtPayload } from 'src/auth/dto/auth.dto';
 
 @Controller('users')
 export class UsersController {
     constructor(
-        private readonly usersService: UsersService,
+        private readonly userService: userService,
     ) {}
 
     @Get('profile')
     async getUserProfile(@Req() req): Promise<Omit<User, 'password'>> {
-        const userId = req.user.userId;
-        const user = await this.usersService.findUserByUserId(userId);
+        const { sub: userId } = req.user as UserJwtPayload;
+        const user = await this.userService.findUserByUserId(userId);
         return user;
     }
 
@@ -23,7 +24,7 @@ export class UsersController {
     async getAdminProfile(@Req() req): Promise<{ user: Omit<User, 'password'>; message: string }> {
         const { userId } = req.user;
 
-        const user = await this.usersService.findUserByUserId(userId);
+        const user = await this.userService.findUserByUserId(userId);
         // if (user.role !== Role.Admin) throw new UnauthorizedException('Only admin can access this endpoint');
         return { user, message: 'Successfully fetched admin profile' };
     }

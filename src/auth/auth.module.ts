@@ -13,6 +13,7 @@ import { OauthModule } from 'src/oauth/oauth.module';
 import { GoogleStrategy } from './strategies/google.strategy';
 import { MfaModule } from 'src/mfa/mfa.module';
 import { DeviceModule } from 'src/device/device.module';
+import { UserDeviceModule } from 'src/userDevice/userDevice.module';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { DeviceModule } from 'src/device/device.module';
     SessionModule,
     OauthModule,
     DeviceModule,
+    UserDeviceModule,
     forwardRef(() => MfaModule),
     JwtModule.registerAsync({
       imports: [ConfigModule],

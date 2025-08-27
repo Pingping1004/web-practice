@@ -1,17 +1,17 @@
-import { BadRequestException, forwardRef, Inject, Injectable, InternalServerErrorException, UnauthorizedException } from "@nestjs/common";
+import { BadRequestException, forwardRef, Inject, Injectable, InternalServerErrorException, NotFoundException, UnauthorizedException } from "@nestjs/common";
 import * as speakeasy from 'speakeasy';
 import * as qrcode from 'qrcode';
 import * as bcrypt from 'bcrypt'
-import { UsersService } from "src/users/users.service";
-import { DeviceStatus, MfaMethod, TrustLevel } from "@prisma/client";
+import { userService } from "src/users/users.service";
+import { MfaMethod, SessionStatus } from "@prisma/client";
 import { createCipheriv, createDecipheriv, randomBytes } from "crypto";
 import { v4 as uuidv4 } from 'uuid';
 import { JwtService } from "@nestjs/jwt";
 import { AuthService } from "src/auth/auth.service";
-import { UserJwtPayload } from "src/auth/dto/auth.dto";
 import { PendingMfaPayload } from "src/types/session";
 import { SessionService } from "src/session/session.service";
 import { DeviceService } from "src/device/device.service";
+import { UserDeviceService } from "src/userDevice/userDevice.service";
 
 @Injectable()
 export class MfaService {
@@ -20,9 +20,10 @@ export class MfaService {
     private readonly KEY: Buffer;
 
     constructor(
-        private readonly userService: UsersService,
+        private readonly userService: userService,
         private readonly jwtService: JwtService,
         private readonly deviceService: DeviceService,
+        private readonly userDeviceService: UserDeviceService,
         @Inject(forwardRef(() => SessionService)) private readonly sessionService: SessionService,
         @Inject(forwardRef(() => AuthService)) private readonly authService: AuthService,
     ) {
@@ -38,7 +39,7 @@ export class MfaService {
 
         if (mfaEnabled && mfaSecret) return { alreadyConfigured: true as const }
 
-        const secret = speakeasy.generateSecret({ name: `Practice-auth : ${username}`, length: 20});
+        const secret = speakeasy.generateSecret({ name: `Practice-auth : ${username}`, length: 20 });
 
         const encryptedSecret = this.encryptedSecret(secret.base32);
         await this.userService.updateMfaAuth(userId, MfaMethod.Totp, encryptedSecret);
@@ -59,7 +60,7 @@ export class MfaService {
         return qrCodeUrl;
     }
 
-    async validateTotp(userId: string, userTotp: string, ipAddress: string, userAgent: string, deviceId: string) {
+    async validateTotp(userId: string, userTotp: string) {
         const { mfaSecret: encryptedSecret } = await this.userService.findUserByUserId(userId);
         console.log('Encrypted secret from DB before decrypt:', encryptedSecret);
 
@@ -77,53 +78,37 @@ export class MfaService {
         });
 
         if (!isTotpValid) throw new UnauthorizedException('Invalid 6-digit code');
-
-        const { accessToken, refreshToken, jti } = await this.generateFinalToken(userId, true, ipAddress, userAgent, deviceId);
-        return { accessToken, refreshToken, jti };
     }
 
-    async generateFinalToken(userId: string, isVerified: boolean, ipAddress: string, userAgent: string, deviceId: string, existingJti?: string) {
+    async generateFinalToken(userId: string, isVerified: boolean, ipAddress: string, userAgent: string, deviceId: string, userDeviceId: string, existingJti?: string) {
         if (!isVerified) throw new BadRequestException('MFA verification required');
 
-        let device = await this.deviceService.findDeviceById(deviceId);
-        if (!device) {
-            device = await this.deviceService.registerDevice(userId, ipAddress, userAgent, deviceId)
-        } else {
-            await this.deviceService.updateMfaTrusted(deviceId);
-        }
+        await this.userDeviceService.markUserDeviceAsVerified(userId, deviceId, userDeviceId);
 
-        console.log('Device ID from params: ', deviceId);
-        console.log('Device ID from device: ', device.deviceId);
-
-        const { email, role } = await this.userService.findUserByUserId(userId);
+        const user = await this.userService.findUserByUserId(userId);
         const sessionJti = existingJti || uuidv4();
-
-        const userPayload: UserJwtPayload = {
-            sub: userId,
-            email: email,
-            role: role,
-            userId,
-            jti: sessionJti,
-            deviceId,
-        };
-
-        const { accessToken, refreshToken } = await this.authService.generateToken(userPayload, sessionJti);
-
         const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-        const hashingToken = await bcrypt.hash(refreshToken, 10);
-
-        await this.sessionService.createSession({
+        
+        let session = await this.sessionService.getOrCreateSession({
             jti: sessionJti,
-            hashedToken: hashingToken,
+            hashedToken: '',
             userId,
+            deviceId,
+            userDeviceId,
             expiresAt,
             ipAddress,
-            // deviceId: device.deviceId,
-            deviceId,
             mfaVerified: isVerified,
+            status: SessionStatus.Active,
+            userAgent,
+            mfaVerifiedAt: new Date(),
+            lastUsedAt: new Date(),
         });
 
-        return { accessToken, refreshToken, jti: sessionJti };
+        const { accessToken, refreshToken } = await this.authService.generateToken(session, user);
+        const hashedToken = await bcrypt.hash(refreshToken, 10);
+        session = await this.sessionService.updateSessionHashToken(session.jti, hashedToken);
+
+        return { accessToken, refreshToken, jti: session.jti };
     }
 
     async generatePendingToken(userId: string): Promise<string> {

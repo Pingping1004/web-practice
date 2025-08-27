@@ -34,10 +34,6 @@ export class UserPayloadDto {
     @IsNotEmpty()
     role: Role;
 
-    @IsString()
-    @IsNotEmpty()
-    userId: string;
-
     @IsDate()
     @IsOptional()
     mfaVerifiedAt?: Date | null;
@@ -46,4 +42,5 @@ export class UserPayloadDto {
 export interface UserJwtPayload extends UserPayloadDto {
     jti: string;
     deviceId: string;
+    sessionId: string;
 }

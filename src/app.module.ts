@@ -12,6 +12,7 @@ import { ThrottlerModule } from '@nestjs/throttler';
 import { IpThrottlerGuard } from './auth/guard/ip-throttler.guard';
 import { MfaModule } from './mfa/mfa.module';
 import { DeviceModule } from './device/device.module';
+import { UserDeviceModule } from './userDevice/userDevice.module';
 
 @Module({
   imports: [
@@ -33,6 +34,7 @@ import { DeviceModule } from './device/device.module';
     OauthModule,
     MfaModule,
     DeviceModule,
+    UserDeviceModule,
   ],
   controllers: [AppController],
   providers: [ 

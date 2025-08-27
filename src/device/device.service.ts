@@ -11,27 +11,30 @@ export class DeviceService {
         private readonly prisma: PrismaService,
     ) { }
 
-    async registerDevice(userId: string, ipAddress: string, userAgent: string, deviceId: string) {
+    async getOrCreateDevice(ipAddress: string, userAgent: string, deviceId: string) {
         let device: Device | null = null;
         device = await this.findDeviceById(deviceId)
 
         if (!device) {
-            const deviceHash = await this.hashDeviceId(deviceId);
-            device = await this.prisma.device.create({
-                data: {
-                    deviceId,
-                    userId,
-                    deviceHash,
-                    ipAddress,
-                    isMfaTrusted: false,
-                    deviceStatus: DeviceStatus.Unverified,
-                    trustLevel: TrustLevel.Basic,
-                    deviceName: this.getDeviceName(userAgent)
-                },
-            });
+            await this.createDevice(deviceId, ipAddress, userAgent);
+            device = await this.findDeviceById(deviceId);
         } else {
             device = await this.updateLastUseDevice(deviceId, ipAddress);
         }
+
+        return device;
+    }
+
+    async createDevice(deviceId: string, ipAddress: string, userAgent: string) {
+        const deviceHash = await this.hashDeviceId(deviceId);
+        const device = await this.prisma.device.create({
+            data: {
+                deviceId,
+                deviceHash,
+                ipAddress,
+                deviceName: this.getDeviceName(userAgent)
+            },
+        });
 
         return device;
     }
@@ -78,61 +81,14 @@ export class DeviceService {
         return device;
     }
 
-    async verifyDevice(deviceId: string): Promise<boolean> {
-        const device = await this.findDeviceById(deviceId);
-        if (!device) return false;
-
-        return Boolean(device.deviceStatus === DeviceStatus.Trusted);
-    }
-
-    // Extension for more specific device auth management according to business logic
-    async updateMfaTrusted(deviceId: string) {
-        const updateDevice = await this.prisma.device.update({
-            where: { deviceId },
-            data: {
-                mfaTrustExpiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-                deviceStatus: DeviceStatus.Trusted,
-                trustLevel: TrustLevel.Basic,
-                isMfaTrusted: true,
-                mfaLastVerifiedAt: new Date(),
-            },
-        });
-
-        return updateDevice;
-    }
-
-    async setRevokeDevice(deviceId: string, isRevoked: boolean) {
-        await this.prisma.device.update({
-            where: { deviceId },
-            data: {
-                isRevoked,
-            }
-        });
-    }
-
-    async bannedDevice(deviceId: string, severity: BanSeverity) {
+    async isGoingToBanDevice(deviceId: string, isBanned: boolean) {
         const bannedDevice = await this.prisma.device.update({
             where: { deviceId },
             data: {
-                trustLevel: TrustLevel.Blacklist,
-                deviceStatus: DeviceStatus.Banned,
-                banSeverity: severity,
+                isBanned,
             }
         });
 
         return bannedDevice;
-    }
-
-    async unbannedDevice(deviceId: string) {
-        const unbannedDevice = await this.prisma.device.update({
-            where: { deviceId },
-            data: {
-                deviceStatus: DeviceStatus.Unverified,
-                banSeverity: null,
-                trustLevel: TrustLevel.Basic,
-            }
-        });
-
-        return unbannedDevice;
     }
 }

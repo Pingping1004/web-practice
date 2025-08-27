@@ -1,3 +1,4 @@
+import { SessionStatus } from "@prisma/client";
 import { Request } from "express";
 import { UserPayloadDto } from "src/auth/dto/auth.dto";
 
@@ -5,12 +6,17 @@ export interface SessionPayload {
     jti: string;
     hashedToken: string;
     userId: string;
-    expiresAt: Date;
-    ipAddress: string
     deviceId: string;
-    isUsed?: boolean;
-    isRevoked?: boolean;
+    userDeviceId: string;
+    lastUsedAt: Date;
+    expiresAt: Date;
+    status: SessionStatus;
+    revokedAt?: Date;
+    revokedReason?: string;
+    userAgent?: string;
+    ipAddress: string;
     mfaVerified?: boolean;
+    mfaVerifiedAt?: Date;
 };
 
 export interface RequestWithUser extends Request {

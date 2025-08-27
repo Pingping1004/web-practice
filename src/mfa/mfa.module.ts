@@ -7,11 +7,13 @@ import { jwtConstants } from "src/auth/constant";
 import { AuthModule } from "src/auth/auth.module";
 import { SessionModule } from "src/session/session.module";
 import { DeviceModule } from "src/device/device.module";
+import { UserDeviceModule } from "src/userDevice/userDevice.module";
 
 @Module({
     imports: [
         UsersModule,
         DeviceModule,
+        UserDeviceModule,
         forwardRef(() => AuthModule),
         forwardRef(() => SessionModule),
         JwtModule.registerAsync({

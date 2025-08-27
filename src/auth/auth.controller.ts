@@ -8,7 +8,8 @@ import { MfaService } from 'src/mfa/mfa.service';
 import { GoogleAuthGuard } from './guard/google-auth.guard';
 import { PendingTokenGuard } from './guard/pending-token.guard';
 import { v4 as uuidv4 } from 'uuid';
-import { UsersService } from 'src/users/users.service';
+import { userService } from 'src/users/users.service';
+import { UserDeviceService } from 'src/userDevice/userDevice.service';
 
 
 @Controller('auth')
@@ -16,7 +17,8 @@ export class AuthController {
     constructor(
         private readonly authService: AuthService,
         private readonly mfaService: MfaService,
-        private readonly userService: UsersService,
+        private readonly userService: userService,
+        private readonly userDeviceService: UserDeviceService,
     ) { }
 
     @Public()
@@ -26,6 +28,9 @@ export class AuthController {
         @Body() signupDto: SignupDto,
         @Res() res: Response,
     ) {
+        const ip = req.ip;
+        const userAgent = req.headers['user-agent'];
+
         let deviceId = req.cookies['deviceId'];
         if (!deviceId) {
             deviceId = uuidv4();
@@ -38,7 +43,10 @@ export class AuthController {
                 path: '/',
             });
         }
-        const { pendingToken } = await this.authService.register(signupDto);
+
+        if (!ip || !userAgent) throw new BadRequestException(`Cannot find IP or user agent in request object`);
+
+        const { pendingToken } = await this.authService.register(signupDto, deviceId, ip, userAgent);
 
         res.cookie('pending_token', pendingToken, {
             httpOnly: true,
@@ -130,12 +138,12 @@ export class AuthController {
         @Res({ passthrough: true }) res: Response,
     ) {
         const deviceId = req.cookies['deviceId'];
-        const userId = req.user?.userId;
+        const userId = req.user?.sub;
         const refreshToken = req.cookies['refresh_token'] || req.body.refreshToken;
 
         if (!deviceId || !userId) throw new NotFoundException('deviceId or userId not found');
 
-        const { newUserPayload: user, accessToken, refreshToken: newRefreshToken } = await this.authService.refresh(refreshToken, deviceId, userId);
+        const { accessToken, refreshToken: newRefreshToken } = await this.authService.refresh(refreshToken, deviceId, userId);
 
         res.cookie('access_token', accessToken, {
             httpOnly: true,
@@ -151,6 +159,7 @@ export class AuthController {
             expires: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
         });
 
+        const user = await this.userService.findUserByUserId(userId);
         return { accessToken, user };
     }
 
@@ -270,7 +279,11 @@ export class AuthController {
         if (!userId || !totp) throw new NotFoundException('userId or Totp for MFA not found');
 
         try {
-            const { accessToken, refreshToken } = await this.mfaService.validateTotp(userId, totp, ip, userAgent, deviceId);
+            const userDevice = await this.userDeviceService.findUserDevice(userId, deviceId);
+            if (!userDevice) throw new NotFoundException('User devicefor MFA verify not found');
+            await this.mfaService.validateTotp(userId, totp);
+
+            const { accessToken, refreshToken } = await this.mfaService.generateFinalToken(userId, true, ip, userAgent, deviceId, userDevice?.userDeviceId);
 
             res.cookie('access_token', accessToken, {
                 httpOnly: true,
@@ -297,14 +310,9 @@ export class AuthController {
     @Post('logout')
     async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
         const deviceId = req.cookies['deviceId'];
-        const { userId } = (req.user as UserJwtPayload);
+        const { sub: userId } = (req.user as UserJwtPayload);
 
-        console.log('Device Id for logout: ', deviceId);
-        console.log('User Id for logout: ', userId);
-
-        if (!userId || !deviceId) {
-            throw new UnauthorizedException('userId or deviceId is missing from token');
-        }
+        if (!userId || !deviceId) throw new UnauthorizedException('userId or deviceId is missing from token');
 
         await this.authService.logout(userId, deviceId);
 

@@ -5,6 +5,7 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 enum Role {
@@ -44,6 +45,20 @@ enum BanSeverity {
   Low
 }
 
+enum SessionStatus {
+  Active
+  Revoked
+  Expired
+}
+
+enum AuthEventType {
+  LOGIN_SUCCESS
+  LOGIN_FAILED
+  MFA_AUTH
+  PASSWORD_RESET
+  SIGNUP
+}
+
 model User {
   userId            String          @id @default(uuid())
   username          String          @unique
@@ -55,7 +70,9 @@ model User {
 
   oauthAccounts     OAuthAccount[]
   sessions          Session[]
-  device            Device[]
+  userDevice        UserDevice[]
+  resetTokens       PasswordResetToken[]
+  authEventLog      AuthEventLog[]
 
   mfaEnabled        Boolean         @default(false)
   mfaSecret         String?
@@ -82,9 +99,10 @@ model OAuthAccount {
 model Session {
   sessionId         String          @id @default(uuid())
   jti               String          @unique
-  hashedToken       String          @unique
+  hashedToken       String         @unique
   userId            String
-  deviceId          String          // Link to device table as foreign key
+  deviceId          String
+  userDeviceId      String          // Link to device table as foreign key
 
   // JWT claims
   expiresAt         DateTime
@@ -92,51 +110,93 @@ model Session {
   lastUsedAt        DateTime        @default(now())
 
   // Session state
-  isActived            Boolean         @default(false)
-  isRevoked         Boolean         @default(false)
-  RevokedAt         DateTime?
+  status            SessionStatus   @default(Active)
+  revokedAt         DateTime?
   revokedReason     String?
 
   ipAddress         String
+  userAgent         String?
   mfaVerified       Boolean         @default(false)
   mfaVerifiedAt     DateTime?
 
   user              User            @relation(fields: [userId], references: [userId], onDelete: Cascade)
   device            Device          @relation(fields: [deviceId], references: [deviceId], onDelete: Cascade)
+  userDevice        UserDevice      @relation(fields: [userDeviceId], references: [userDeviceId], onDelete: Cascade)
 
-  @@index([jti])
-  @@index([deviceId])
+  @@index([userDeviceId])
+  @@index([userId])
   @@index([expiresAt])
 }
 
 model Device {
   deviceId          String          @id @default(uuid())
-  userId            String
   deviceHash        String
   deviceName        String?
   ipAddress         String
+  isBanned          Boolean         @default(false)
 
-  mfaLastVerifiedAt    DateTime?
-  isMfaTrusted         Boolean         @default(false)
-  mfaTrustExpiresAt    DateTime?
+  lastUsedAt        DateTime @default(now())
+  createdAt         DateTime @default(now())
+
+  userDevices       UserDevice[]
+  sessionService    Session[]
+
+  @@index([deviceHash])
+  @@index([ipAddress])
+}
+
+model UserDevice {
+  userDeviceId      String            @id @default(uuid())
+  userId            String
+  deviceId          String
 
   deviceStatus      DeviceStatus
   trustLevel        TrustLevel
   banSeverity       BanSeverity?
 
-  expiresAt         DateTime?
-  lastUsedAt        DateTime        @default(now())
-  createdAt         DateTime        @default(now())
-
   isRevoked         Boolean         @default(false)
   revokedAt         DateTime?
   revokedReason     String?
 
+  mfaLastVerifiedAt    DateTime?
+  isMfaTrusted         Boolean         @default(false)
+  mfaTrustExpiresAt    DateTime?
+
+  expiresAt         DateTime?
+  lastUsedAt        DateTime        @default(now())
+  createdAt         DateTime        @default(now())
+
   user              User            @relation(fields: [userId], references: [userId], onDelete: Cascade)
+  device            Device          @relation(fields: [deviceId], references: [deviceId], onDelete: Cascade)
   sessions          Session[]
 
+  @@index([userId, deviceId])
+}
+
+model PasswordResetToken {
+  resetTokenId      String          @id @default(uuid())
+  userId            String
+  tokenHash         String          @unique
+  expiresAt         DateTime
+  usedAt            DateTime
+  createdAt         DateTime        @default(now())
+
+  user              User            @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
   @@index([userId])
-  @@index([deviceHash])
-  @@index([ipAddress])
-  @@index([deviceStatus])
+  @@index([expiresAt])
+}
+
+model AuthEventLog {
+  authLogId         String          @id @default(uuid())
+  userId            String
+  eventType         AuthEventType
+  ipAddress         String
+  userAgent         String?
+  createdAt         DateTime        @default(now())
+
+  user              User            @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([eventType])
 }

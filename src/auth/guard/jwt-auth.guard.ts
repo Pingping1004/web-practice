@@ -1,16 +1,18 @@
-import { ExecutionContext, Injectable, UnauthorizedException } from "@nestjs/common";
+import { ExecutionContext, Injectable, NotFoundException, UnauthorizedException } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
 import { AuthGuard } from "@nestjs/passport";
-import { isObservable, lastValueFrom } from "rxjs";
 import { IS_PUBLIC_KEY } from "../decorator/public.decorator";
 import { UserJwtPayload } from "../dto/auth.dto";
 import { SessionService } from "src/session/session.service";
+import { SessionStatus } from "@prisma/client";
+import { UserDeviceService } from "src/userDevice/userDevice.service";
 
 @Injectable()
 export class JwtAuthGuard extends AuthGuard('jwt') {
     constructor(
         private readonly reflector: Reflector,
         private readonly sessionService: SessionService,
+        private readonly userDeviceService: UserDeviceService,
     ) {
         super();
     }
@@ -32,10 +34,12 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
             throw new UnauthorizedException('Missing deviceId in token');
         }
 
-        const session = await this.sessionService.findActiveSessionByDevice(user.userId, user.deviceId);
-        if (!session || session?.isRevoked) {
+        const userDevice = await this.userDeviceService.findUserDevice(user.sub, user.deviceId);
+        if (!userDevice) throw new NotFoundException('User device in JWT guard not found');
+
+        const session = await this.sessionService.findActiveSessionByUserDevice(user.sub, userDevice?.userDeviceId);
+        if (!session || session?.status !== SessionStatus.Active) 
             throw new UnauthorizedException(`Session revoked or invalid device`);
-        }
 
         return true;
     }

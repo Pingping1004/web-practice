@@ -6,7 +6,7 @@ import * as bcrypt from 'bcrypt';
 import { OauthService } from 'src/oauth/oauth.service';
 
 @Injectable()
-export class UsersService {
+export class userService {
     constructor(
         private readonly prisma: PrismaService,
         private readonly oauthService: OauthService,
@@ -40,6 +40,7 @@ export class UsersService {
     }
 
     async findUserByUserId(userId: string): Promise<Omit<User, 'password'>> {
+        console.log('User ID to search user: ', userId);
         const user = await this.prisma.user.findUnique({
             where: { userId },
         });

@@ -2,7 +2,7 @@ import { ExtractJwt, Strategy } from "passport-jwt";
 import { PassportStrategy } from "@nestjs/passport";
 import { Injectable, Logger, UnauthorizedException } from "@nestjs/common";
 import { jwtConstants } from "../constant";
-import { UsersService } from "src/users/users.service";
+import { userService } from "src/users/users.service";
 import { Role } from "@prisma/client";
 import type { Request } from "express";
 
@@ -10,7 +10,7 @@ import type { Request } from "express";
 export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     private readonly logger = new Logger('JwtStrategy');
     constructor(
-        private readonly usersService: UsersService,
+        private readonly userService: userService,
     ) {
         super({
             jwtFromRequest: ExtractJwt.fromExtractors([
@@ -24,7 +24,7 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
         });
     }
 
-    async validate(req: Request, payload: { sub: string, email: string, role: Role, jti: string, deviceId: string }) {
+    async validate(req: Request, payload: { sub: string, email: string, role: Role, jti: string, deviceId: string, sessionId: string }) {
         const cookieDeviceId = req.cookies?.deviceId;
 
         if (!cookieDeviceId || cookieDeviceId !== payload.deviceId) {
@@ -32,13 +32,14 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
         }
 
         try {
-            await this.usersService.findUserByUserId(payload.sub);
+            await this.userService.findUserByUserId(payload.sub);
             return {
-                userId: payload.sub,
+                sub: payload.sub,
                 email: payload.email,
                 role: payload.role,
                 jti: payload.jti,
                 deviceId: payload.deviceId,
+                sessionId: payload.sessionId,
             };
         } catch (error) {
             this.logger.warn(`User not found or error in JWT validate: ${error.message}`);
