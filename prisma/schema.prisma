@@ -71,7 +71,7 @@ model User {
   oauthAccounts     OAuthAccount[]
   sessions          Session[]
   userDevice        UserDevice[]
-  resetTokens       ResetPassword[]
+  resetTokens       Password[]
   authEventLog      AuthEventLog[]
 
   mfaEnabled        Boolean         @default(false)
@@ -173,18 +173,22 @@ model UserDevice {
   @@index([userId, deviceId])
 }
 
-model ResetPassword {
+model Password {
   resetTokenId      String          @id @default(uuid())
   userId            String
   tokenHash         String          @unique
-  expiresAt         DateTime
   usedAt            DateTime?
+  isActive          Boolean         @default(true)
+
   createdAt         DateTime        @default(now())
+  expiresAt         DateTime
 
   user              User            @relation(fields: [userId], references: [userId], onDelete: Cascade)
 
   @@index([userId])
   @@index([expiresAt])
+
+  @@unique([userId], name: "unique_active_token", map: "unique_active_token")
 }
 
 model AuthEventLog {

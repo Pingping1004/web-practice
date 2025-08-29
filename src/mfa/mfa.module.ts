@@ -8,6 +8,7 @@ import { AuthModule } from "src/auth/auth.module";
 import { SessionModule } from "src/session/session.module";
 import { DeviceModule } from "src/device/device.module";
 import { UserDeviceModule } from "src/userDevice/userDevice.module";
+import { MfaController } from "./mfa.controller";
 
 @Module({
     imports: [
@@ -26,6 +27,7 @@ import { UserDeviceModule } from "src/userDevice/userDevice.module";
         }),
     ],
     providers: [MfaService],
+    controllers: [MfaController],
     exports: [MfaService],
 })
 export class MfaModule {}
