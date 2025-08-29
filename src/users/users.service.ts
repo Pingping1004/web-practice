@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from 'prisma/prisma.service';
 import { AuthProvider, MfaMethod, Role, User } from '@prisma/client';
 import { SignupDto } from 'src/auth/dto/auth.dto';
@@ -80,7 +80,23 @@ export class UserService {
         });
     }
 
-    async updateUserPassword(userId: string, newHashedPassword: string) {
+    async findUserByUserIdWithPassword(userId: string) {
+        const user = await this.prisma.user.findUnique({
+            where: { userId },
+        });
+
+        if (!user) throw new NotFoundException('User not found');
+        return user;
+    }
+
+    async updateUserPassword(userId: string, newPassword: string) {
+        const { password } = await this.findUserByUserIdWithPassword(userId);
+        if (!password) throw new NotFoundException('Old password not found');
+
+        const isSamePassword = await bcrypt.compare(newPassword, password);
+        if (isSamePassword) throw new BadRequestException('New password cannot be the same as the old one');
+
+        const newHashedPassword = await bcrypt.hash(newPassword, 12);
         await this.prisma.user.update({
             where: { userId },
             data: {

@@ -38,7 +38,7 @@ export class PasswordService {
         });
 
         try {
-            await this.mailService.sendPasswordResetEmail(email, rawToken);
+            await this.mailService.sendResetPasswordEmail(email, rawToken);
             return { success: true };
         } catch {
             await this.prisma.password.deleteMany({
@@ -94,8 +94,7 @@ export class PasswordService {
 
         await this.prisma.$transaction(async (tx) => {
             await this.verifyAndMarkResetToken(resetRecord.tokenHash, resetRecord.userId);
-            const newHashedPassword = await bcrypt.hash(newPassword, 12);
-            await this.userService.updateUserPassword(resetRecord.userId, newHashedPassword);
+            await this.userService.updateUserPassword(resetRecord.userId, newPassword);
         });
 
         return { success: true };

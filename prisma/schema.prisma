@@ -187,8 +187,6 @@ model Password {
 
   @@index([userId])
   @@index([expiresAt])
-
-  @@unique([userId], name: "unique_active_token", map: "unique_active_token")
 }
 
 model AuthEventLog {
