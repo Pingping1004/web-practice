@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, MiddlewareConsumer, NestModule } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
@@ -15,6 +15,7 @@ import { DeviceModule } from './device/device.module';
 import { UserDeviceModule } from './userDevice/userDevice.module';
 import { PasswordModule } from './password/password.module';
 import { LoggingModule } from './logging/logging.module';
+import { RequestLoggerMiddleware } from './middleware/request-logger.middleware';
 
 @Module({
   imports: [
@@ -41,7 +42,7 @@ import { LoggingModule } from './logging/logging.module';
     LoggingModule,
   ],
   controllers: [AppController],
-  providers: [ 
+  providers: [
     {
       provide: APP_GUARD,
       useClass: IpThrottlerGuard,
@@ -53,4 +54,8 @@ import { LoggingModule } from './logging/logging.module';
     AppService,
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(RequestLoggerMiddleware).forRoutes('*');
+  }
+}
