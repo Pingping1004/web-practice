@@ -69,7 +69,6 @@ export class DeviceService {
         }
 
         const deviceName = `${browserName} on ${osName}`;
-        console.log('User device name: ', deviceName);
         return deviceName;
     }
 

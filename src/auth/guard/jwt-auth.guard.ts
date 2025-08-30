@@ -6,6 +6,7 @@ import { UserJwtPayload } from "../dto/auth.dto";
 import { SessionService } from "src/session/session.service";
 import { SessionStatus } from "@prisma/client";
 import { UserDeviceService } from "src/userDevice/userDevice.service";
+import { LoggingService } from "src/logging/logging.service";
 
 @Injectable()
 export class JwtAuthGuard extends AuthGuard('jwt') {
@@ -13,6 +14,7 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
         private readonly reflector: Reflector,
         private readonly sessionService: SessionService,
         private readonly userDeviceService: UserDeviceService,
+        private readonly logger: LoggingService,
     ) {
         super();
     }
@@ -29,7 +31,7 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
         const result = await super.canActivate(context);
 
         const user = req.user as UserJwtPayload;
-        console.log('JWT payload: ', req.user);
+        this.logger.audit(`JWT payload`, { user: req.user });
         if (!user || !user.deviceId) {
             throw new UnauthorizedException('Missing deviceId in token');
         }

@@ -12,6 +12,7 @@ import { PendingMfaPayload } from "src/types/session";
 import { SessionService } from "src/session/session.service";
 import { DeviceService } from "src/device/device.service";
 import { UserDeviceService } from "src/userDevice/userDevice.service";
+import { LoggingService } from "src/logging/logging.service";
 
 @Injectable()
 export class MfaService {
@@ -23,6 +24,7 @@ export class MfaService {
         private readonly userService: UserService,
         private readonly jwtService: JwtService,
         private readonly userDeviceService: UserDeviceService,
+        private readonly logger: LoggingService,
         @Inject(forwardRef(() => SessionService)) private readonly sessionService: SessionService,
         @Inject(forwardRef(() => AuthService)) private readonly authService: AuthService,
     ) {
@@ -33,7 +35,6 @@ export class MfaService {
         this.KEY = Buffer.from(keyString, 'hex');
     }
     async generateMfaSecret(userId: string) {
-        console.log('Generate MFA secret is activated');
         const { username, mfaEnabled, mfaSecret } = await this.userService.findUserByUserId(userId);
 
         if (mfaEnabled && mfaSecret) return { alreadyConfigured: true as const }
@@ -61,13 +62,13 @@ export class MfaService {
 
     async validateTotp(userId: string, userTotp: string) {
         const { mfaSecret: encryptedSecret } = await this.userService.findUserByUserId(userId);
-        console.log('Encrypted secret from DB before decrypt:', encryptedSecret);
+        this.logger.log(`Encrypted secret from DB before decrypt: ${encryptedSecret}`);
 
         if (!encryptedSecret) throw new UnauthorizedException('MFA not setup for this user');
 
         const secret = this.decryptSecret(encryptedSecret);
-        console.log('Decrypted secret: ', secret);
-        console.log('userTotp: ', userTotp);
+        this.logger.log(`Decrypted secret: ${secret}`);
+        this.logger.log(`userTotp: ', ${userTotp}`);
 
         const isTotpValid = speakeasy.totp.verify({
             secret,
@@ -155,7 +156,7 @@ export class MfaService {
 
 
     encryptedSecret(secret: string): string {
-        console.log('Input secret: ', secret);
+        this.logger.audit('ENCRYPT_SECRET', { method: 'TOTP' });
         const iv = randomBytes(this.IV_LENGTH);
         const cipher = createCipheriv(this.ALGORITHM, this.KEY, iv);
 
@@ -163,12 +164,12 @@ export class MfaService {
         const authTag = cipher.getAuthTag();
 
         const result = `${iv.toString('base64')}.${authTag.toString('base64')}.${encrypted.toString('base64')}`;
-        console.log('Encrypted result:', result);
+        this.logger.audit('Encrypted result', { result });
         return result;
     }
 
     decryptSecret(encryptedText: string): string {
-        console.log('Input to decrypt: ', encryptedText);
+        this.logger.audit('Input to decrypt: ', { encryptedText });
         const [ivB64, authTagB64, encryptedB64] = encryptedText.split('.');
         if (!ivB64 || !authTagB64 || !encryptedB64) throw new Error('Invalid MFA secret format');
 
@@ -182,10 +183,10 @@ export class MfaService {
 
             const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
             const result = decrypted.toString('utf-8');
-            console.log('Decrypted result: ', result);
+            this.logger.log('Decrypted result', { result });
             return result;
         } catch (error) {
-            console.error('Decrypted failed: ', error.message);
+            this.logger.error(`Decrypted failed`, { error });
             throw new Error('Failed to decrypt secret');
         }
     }

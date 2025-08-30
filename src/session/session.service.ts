@@ -1,6 +1,7 @@
 import { forwardRef, Inject, Injectable, NotFoundException, UnauthorizedException } from "@nestjs/common";
 import { Session, SessionStatus } from "@prisma/client";
 import { PrismaService } from "prisma/prisma.service";
+import { LoggingService } from "src/logging/logging.service";
 import { MfaService } from "src/mfa/mfa.service";
 import { SessionPayload } from "src/types/session";
 import { UserDeviceService } from "src/userDevice/userDevice.service";
@@ -10,6 +11,7 @@ export class SessionService {
     constructor(
         private readonly prisma: PrismaService,
         private readonly userDeviceService: UserDeviceService,
+        private readonly logger: LoggingService,
         @Inject(forwardRef(() => MfaService)) private readonly mfaService: MfaService,
     ) { }
 
@@ -55,7 +57,8 @@ export class SessionService {
             expiresAt: session.expiresAt,
         });
 
-        console.log('Is session expired: ', isSessionExpired);
+        this.logger.log(`Is session expired: ${isSessionExpired}`);
+
         if (session.status !== SessionStatus.Active || isSessionExpired) throw new UnauthorizedException(`Session revoked or expired`);
 
         if (session.userDeviceId !== userDeviceId) {

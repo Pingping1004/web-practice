@@ -6,6 +6,7 @@ import { PendingTokenGuard } from "src/auth/guard/pending-token.guard";
 import { UserDeviceService } from "src/userDevice/userDevice.service";
 import * as session from 'src/types/session';
 import type { Request, Response } from "express";
+import { LoggingService } from "src/logging/logging.service";
 
 @Controller('auth/mfa')
 export class MfaController {
@@ -13,6 +14,7 @@ export class MfaController {
         private readonly mfaService: MfaService,
         private readonly userService: UserService,
         private readonly userDeviceService: UserDeviceService,
+        private readonly logger: LoggingService,
     ) { }
 
     @Public()
@@ -55,7 +57,7 @@ export class MfaController {
         if (!userAgent || !ip) throw new NotFoundException('user agent or user IP not found');
 
         const userId = req.user?.sub;
-        console.log('User agent for MFA verify: ', userAgent);
+        this.logger.log(`User agent for MFA verify: ${userAgent}`);
         if (!userId || !totp) throw new NotFoundException('userId or Totp for MFA not found');
 
         try {
@@ -82,7 +84,7 @@ export class MfaController {
             res.clearCookie('pending_token');
             return res.redirect('/users/profile');
         } catch (error) {
-            console.error('Failed to verify TOTP: ', error);
+            this.logger.error('Failed to verify TOTP: ', error.message);
             throw new UnauthorizedException('Invalid TOTP code');
         }
     }

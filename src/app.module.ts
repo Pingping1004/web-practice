@@ -14,6 +14,7 @@ import { MfaModule } from './mfa/mfa.module';
 import { DeviceModule } from './device/device.module';
 import { UserDeviceModule } from './userDevice/userDevice.module';
 import { PasswordModule } from './password/password.module';
+import { LoggingModule } from './logging/logging.module';
 
 @Module({
   imports: [
@@ -37,6 +38,7 @@ import { PasswordModule } from './password/password.module';
     DeviceModule,
     UserDeviceModule,
     PasswordModule,
+    LoggingModule,
   ],
   controllers: [AppController],
   providers: [ 

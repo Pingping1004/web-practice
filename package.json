@@ -34,6 +34,7 @@
     "cookie-parser": "^1.4.7",
     "data-fns": "^1.1.0",
     "date-fns": "^4.1.0",
+    "nest-winston": "^1.10.2",
     "nodemailer": "^7.0.5",
     "passport-google-oauth20": "^2.0.0",
     "passport-jwt": "^4.0.1",
@@ -42,7 +43,9 @@
     "rxjs": "^7.8.1",
     "speakeasy": "^2.0.0",
     "ua-parser-js": "^2.0.4",
-    "uuid": "^11.1.0"
+    "uuid": "^11.1.0",
+    "winston": "^3.17.0",
+    "winston-daily-rotate-file": "^5.0.0"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.2.0",

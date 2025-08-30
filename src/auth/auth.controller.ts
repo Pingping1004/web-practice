@@ -7,6 +7,7 @@ import * as session from 'src/types/session';
 import { GoogleAuthGuard } from './guard/google-auth.guard';
 import { v4 as uuidv4 } from 'uuid';
 import { UserService } from 'src/users/users.service';
+import { LoggingService } from 'src/logging/logging.service';
 
 
 @Controller('auth')
@@ -14,6 +15,7 @@ export class AuthController {
     constructor(
         private readonly authService: AuthService,
         private readonly userService: UserService,
+        private readonly logger: LoggingService,
     ) { }
 
     @Public()
@@ -64,11 +66,9 @@ export class AuthController {
         const userAgent = req.headers['user-agent'];
 
         let deviceId = req.cookies['deviceId'];
-        console.log('deviceId in login controller: ', deviceId);
 
         if (!deviceId) {
             deviceId = uuidv4();
-            console.log('Newly generate deviceId');
 
             res.cookie('deviceId', deviceId, {
                 httpOnly: true,
@@ -84,7 +84,7 @@ export class AuthController {
         }
 
         const result = await this.authService.login(loginDto, deviceId, ip, userAgent);
-        console.log('Login result: ', result);
+        this.logger.log('Login result: ', result);
 
         if (!result.isDeviceVerified) {
             res.cookie('pending_token', result.pendingToken, {

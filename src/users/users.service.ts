@@ -4,12 +4,14 @@ import { AuthProvider, MfaMethod, Role, User } from '@prisma/client';
 import { SignupDto } from 'src/auth/dto/auth.dto';
 import * as bcrypt from 'bcrypt';
 import { OauthService } from 'src/oauth/oauth.service';
+import { LoggingService } from 'src/logging/logging.service';
 
 @Injectable()
 export class UserService {
     constructor(
         private readonly prisma: PrismaService,
         private readonly oauthService: OauthService,
+        private readonly logger: LoggingService,
     ) { }
 
     async createUser(signupDto: SignupDto, provider: AuthProvider, providerUserId?: string): Promise<User> {
@@ -40,7 +42,7 @@ export class UserService {
     }
 
     async findUserByUserId(userId: string): Promise<Omit<User, 'password'>> {
-        console.log('User ID to search user: ', userId);
+        this.logger.log(`User ID to search user: ${userId}`);
         const user = await this.prisma.user.findUnique({
             where: { userId },
         });
